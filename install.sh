@@ -119,14 +119,26 @@ stow -d "$DOTFILES_DIR" -t "$HOME" --adopt .
 git -C "$DOTFILES_DIR" checkout -- . 2>/dev/null || true
 log_success "Dotfiles deployed successfully."
 
-# 7. Monitor Configuration Setup
+
+# 7. Hyprpm Plugins (scrolloverview for Win+Tab & gestures)
+if command -v hyprpm &>/dev/null; then
+    log_info "Setting up scrolloverview plugin via hyprpm (needed for Win+Tab)..."
+    hyprpm update 2>/dev/null || true
+    if ! hyprpm list 2>/dev/null | grep -q "scrolloverview"; then
+        hyprpm add https://github.com/yayuuu/hyprland-scroll-overview 2>/dev/null || true
+        hyprpm enable scrolloverview 2>/dev/null || true
+    fi
+    log_success "scrolloverview plugin configured for hyprpm."
+fi
+
+# 8. Monitor Configuration Setup
 if [ ! -f "$HOME/.config/hypr/custom/monitors.lua" ]; then
     log_info "Creating default monitors.lua from template..."
     cp "$DOTFILES_DIR/.config/hypr/custom/monitors.lua.example" "$HOME/.config/hypr/custom/monitors.lua"
     log_success "Created ~/.config/hypr/custom/monitors.lua (edit this to configure your display layout)."
 fi
 
-# 8. Git Personal Configuration
+# 9. Git Personal Configuration
 if [ ! -f "$HOME/.gitconfig.local" ]; then
     log_info "Creating ~/.gitconfig.local template..."
     cat << 'GIT_EOF' > "$HOME/.gitconfig.local"
@@ -137,11 +149,11 @@ GIT_EOF
     log_success "Created ~/.gitconfig.local. Update it with your Git identity."
 fi
 
-# 9. Create Standard User Directories
+# 10. Create Standard User Directories
 mkdir -p "$HOME/Pictures/Screenshots" "$HOME/Pictures/wallpapers" "$HOME/Videos/Recordings" "$HOME/Documents" "$HOME/Projects"
 log_success "Verified user directories."
 
-# 10. Enable Essential Systemd Services
+# 11. Enable Essential Systemd Services
 read -rp "Enable essential desktop systemd services (sddm, bluetooth, NetworkManager)? [y/N]: " enable_services
 if [[ "$enable_services" =~ ^[Yy]$ ]]; then
     sudo systemctl enable --now sddm.service 2>/dev/null || true
@@ -150,7 +162,7 @@ if [[ "$enable_services" =~ ^[Yy]$ ]]; then
     log_success "System services enabled."
 fi
 
-# 11. Shell Preference
+# 12. Shell Preference
 if [ "$SHELL" != "/usr/bin/fish" ] && command -v fish &>/dev/null; then
     read -rp "Set fish as your default login shell? [y/N]: " set_fish
     if [[ "$set_fish" =~ ^[Yy]$ ]]; then

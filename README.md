@@ -19,6 +19,10 @@ A high-performance, polished Wayland desktop environment built on **EndeavourOS 
   - Region snip, annotation editor (`swappy`), full desktop capture, active window capture, and scrolling screenshots.
   - OCR text grabber (`tesseract`) and direct Google Lens region search.
   - High-framerate screen recording (`wf-recorder`).
+- **Workspace & Window Overview (Win + Tab)**:
+  - Powered by the `scrolloverview` plugin ([yayuuu/hyprland-scroll-overview](https://github.com/yayuuu/hyprland-scroll-overview)).
+  - Provides dynamic visual workspace overview and window switching.
+  - Automatically installed and enabled via `hyprpm` during `./install.sh`.
 - **Workspace 1 Auto-Tiler**: Pressing a single key sets up an instant 4-pane system operations dashboard (`btop`, `spotify-player`, `netcenter`, `pulsemixer`).
 - **Intelligent Power Management**:
   - Automatically switches display refresh rate (e.g. 144Hz on AC, 60Hz on battery).
