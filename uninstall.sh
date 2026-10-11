@@ -25,8 +25,10 @@ echo -e "${BOLD}                        Dotfiles Rollback / Uninstaller         
 echo -e "${BOLD}${YELLOW}==============================================================================${RESET}"
 echo ""
 
-# Locate backup directory
-BACKUP_DIR=""
+
+# Locate backup directory (command line argument has highest priority)
+BACKUP_DIR="${1:-}"
+
 if [ -f "$HOME/.dotfiles_last_backup" ]; then
     BACKUP_DIR="$(cat "$HOME/.dotfiles_last_backup")"
 fi

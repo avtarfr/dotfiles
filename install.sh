@@ -21,6 +21,12 @@ log_warn()    { echo -e "${YELLOW}[WARN]${RESET} $1"; }
 log_error()   { echo -e "${RED}[ERROR]${RESET} $1"; }
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Support --restore or -r flags to trigger rollback
+if [[ "${1:-}" == "--restore" ]] || [[ "${1:-}" == "-r" ]]; then
+    exec "/uninstall.sh" "${@:2}"
+fi
+
 BACKUP_DIR="$HOME/.dotfiles_backup_$(date +%Y%m%d_%H%M%S)"
 
 echo -e "${BOLD}${CYAN}==============================================================================${RESET}"
