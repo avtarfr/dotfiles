@@ -1,0 +1,19 @@
+# Backups and temporary files
+*.bak
+*.backup
+*.old
+*~
+*.swp
+*.log
+
+# Python cache and environments
+__pycache__/
+*.py[cod]
+.venv/
+
+# Machine overrides
+.gitconfig.local
+
+# OS artifacts
+.DS_Store
+Thumbs.db

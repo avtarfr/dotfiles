@@ -1,0 +1,14 @@
+# Core git configuration template
+# User identity is cleanly decoupled and loaded from ~/.gitconfig.local
+
+[include]
+    path = ~/.gitconfig.local
+
+[init]
+    defaultBranch = main
+
+[core]
+    autocrlf = input
+
+[pull]
+    rebase = false

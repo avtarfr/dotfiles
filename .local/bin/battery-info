@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""
+Battery Information Utility
+Fetches battery percentage, status, estimated discharge/charge time,
+and health/capacity metrics. Dispatches desktop notification and prints
+structured output to terminal.
+"""
+
+import glob
+import os
+import re
+import subprocess
+import sys
+
+
+def read_sysfs(path: str) -> str | None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+
+def get_battery_info():
+    bats = sorted(glob.glob("/sys/class/power_supply/BAT*"))
+    if not bats:
+        return None
+    bat = bats[0]
+
+    status = read_sysfs(os.path.join(bat, "status")) or "Unknown"
+    capacity_str = read_sysfs(os.path.join(bat, "capacity")) or "0"
+    try:
+        capacity = int(capacity_str)
+    except ValueError:
+        capacity = 0
+
+    cycle_count = read_sysfs(os.path.join(bat, "cycle_count"))
+
+    # Check external power status
+    plugged_in = False
+    for p in sorted(glob.glob("/sys/class/power_supply/*")):
+        if "BAT" not in os.path.basename(p):
+            online_val = read_sysfs(os.path.join(p, "online"))
+            if online_val == "1":
+                plugged_in = True
+                break
+    if status.lower() in ("charging", "full"):
+        plugged_in = True
+
+    # Energy-based attributes (µWh and µW)
+    energy_now = read_sysfs(os.path.join(bat, "energy_now"))
+    energy_full = read_sysfs(os.path.join(bat, "energy_full"))
+    energy_full_design = read_sysfs(os.path.join(bat, "energy_full_design"))
+    power_now = read_sysfs(os.path.join(bat, "power_now"))
+
+    # Charge-based fallback attributes (µAh and µA)
+    charge_now = read_sysfs(os.path.join(bat, "charge_now"))
+    charge_full = read_sysfs(os.path.join(bat, "charge_full"))
+    charge_full_design = read_sysfs(os.path.join(bat, "charge_full_design"))
+    current_now = read_sysfs(os.path.join(bat, "current_now"))
+
+    # Health computation
+    health_pct = None
+    health_str = "Unknown"
+    if energy_full and energy_full_design:
+        try:
+            ef = float(energy_full) / 1e6
+            efd = float(energy_full_design) / 1e6
+            if efd > 0:
+                health_pct = (ef / efd) * 100
+                health_str = f"{health_pct:.1f}% ({ef:.1f} / {efd:.1f} Wh)"
+        except ValueError:
+            pass
+    elif charge_full and charge_full_design:
+        try:
+            cf = float(charge_full) / 1e3
+            cfd = float(charge_full_design) / 1e3
+            if cfd > 0:
+                health_pct = (cf / cfd) * 100
+                health_str = f"{health_pct:.1f}% ({cf:.0f} / {cfd:.0f} mAh)"
+        except ValueError:
+            pass
+
+    if cycle_count and health_str != "Unknown":
+        health_str += f" • {cycle_count} cycles"
+
+    # Time remaining / rate
+    time_remaining = None
+    rate_str = None
+
+    status_lower = status.lower()
+    if status_lower == "discharging":
+        if energy_now and power_now:
+            try:
+                en = float(energy_now)
+                pn = float(power_now)
+                if pn > 0:
+                    tot_min = int((en / pn) * 60)
+                    time_remaining = f"{tot_min // 60}h {tot_min % 60:02d}m"
+                    rate_str = f"{pn / 1e6:.1f} W"
+            except ValueError:
+                pass
+        elif charge_now and current_now:
+            try:
+                cn = float(charge_now)
+                cur = float(current_now)
+                if cur > 0:
+                    tot_min = int((cn / cur) * 60)
+                    time_remaining = f"{tot_min // 60}h {tot_min % 60:02d}m"
+                    rate_str = f"{cur / 1e3:.0f} mA"
+            except ValueError:
+                pass
+    elif status_lower == "charging":
+        if energy_now and energy_full and power_now:
+            try:
+                en = float(energy_now)
+                ef = float(energy_full)
+                pn = float(power_now)
+                if pn > 0 and ef > en:
+                    tot_min = int(((ef - en) / pn) * 60)
+                    time_remaining = f"{tot_min // 60}h {tot_min % 60:02d}m"
+                    rate_str = f"{pn / 1e6:.1f} W"
+            except ValueError:
+                pass
+        elif charge_now and charge_full and current_now:
+            try:
+                cn = float(charge_now)
+                cf = float(charge_full)
+                cur = float(current_now)
+                if cur > 0 and cf > cn:
+                    tot_min = int(((cf - cn) / cur) * 60)
+                    time_remaining = f"{tot_min // 60}h {tot_min % 60:02d}m"
+                    rate_str = f"{cur / 1e3:.0f} mA"
+            except ValueError:
+                pass
+
+    # ACPI fallback for time estimate if not calculated
+    if not time_remaining:
+        try:
+            acpi_out = subprocess.check_output(
+                ["acpi", "-b"], text=True, stderr=subprocess.DEVNULL
+            )
+            m = re.search(r"(\d+):(\d+)(?::\d+)?\s+(?:remaining|until charged)", acpi_out)
+            if m:
+                time_remaining = f"{int(m.group(1))}h {int(m.group(2)):02d}m"
+        except Exception:
+            pass
+
+    return {
+        "status": status,
+        "capacity": capacity,
+        "plugged_in": plugged_in,
+        "health": health_str,
+        "time_remaining": time_remaining,
+        "rate": rate_str,
+        "cycle_count": cycle_count,
+    }
+
+
+def send_notification(info):
+    if not info:
+        try:
+            subprocess.run(
+                ["notify-send", "-a", "Battery", "-u", "critical", "Battery Error", "No battery device detected"],
+                check=False,
+            )
+        except Exception:
+            pass
+        return
+
+    status = info["status"]
+    capacity = info["capacity"]
+    plugged_in = info["plugged_in"]
+    health = info["health"]
+    time_rem = info["time_remaining"]
+    rate = info["rate"]
+
+    status_lower = status.lower()
+
+    # Determine icon
+    if status_lower == "charging":
+        if capacity >= 90:
+            icon = "battery-full-charging-symbolic"
+        elif capacity >= 30:
+            icon = "battery-good-charging-symbolic"
+        elif capacity >= 15:
+            icon = "battery-low-charging-symbolic"
+        else:
+            icon = "battery-caution-charging-symbolic"
+    elif status_lower == "full":
+        icon = "battery-full-charged-symbolic"
+    else:
+        if capacity >= 90:
+            icon = "battery-full-symbolic"
+        elif capacity >= 30:
+            icon = "battery-good-symbolic"
+        elif capacity >= 15:
+            icon = "battery-low-symbolic"
+        else:
+            icon = "battery-caution-symbolic"
+
+    # Format notification content
+    summary = f"Battery: {capacity}% ({status})"
+    body_lines = [f"Status: {status}"]
+
+    if status_lower == "discharging":
+        if time_rem:
+            rate_suffix = f" (at {rate})" if rate else ""
+            body_lines.append(f"Remaining: {time_rem}{rate_suffix}")
+        else:
+            body_lines.append("Remaining: Calculating...")
+        body_lines.append(f"Health: {health}")
+    elif plugged_in:
+        body_lines.append(f"Health: {health}")
+        if time_rem:
+            rate_suffix = f" (at {rate})" if rate else ""
+            body_lines.append(f"Remaining: {time_rem}{rate_suffix}")
+    else:
+        body_lines.append(f"Health: {health}")
+
+    body = "\n".join(body_lines)
+
+    urgency = "critical" if (status_lower == "discharging" and capacity <= 15) else "normal"
+
+    cmd = [
+        "notify-send",
+        "-a", "Battery",
+        "-i", icon,
+        "-u", urgency,
+        "-t", "4500",
+        "-h", "string:synchronous:battery",
+        "-h", f"int:value:{capacity}",
+        summary,
+        body,
+    ]
+
+    try:
+        subprocess.run(cmd, check=False)
+    except Exception:
+        pass
+
+
+def main():
+    info = get_battery_info()
+
+    # Always dispatch desktop notification
+    send_notification(info)
+
+    # Print to stdout for CLI use
+    if not info:
+        print("Error: No battery detected.")
+        sys.exit(1)
+
+    print("========================================")
+    print(f"  Battery: {info['capacity']}% [{info['status']}]")
+    print("========================================")
+    print(f"  Status        : {info['status']}")
+    print(f"  AC Connected  : {'Yes' if info['plugged_in'] else 'No'}")
+    if info['time_remaining']:
+        rate_info = f" ({info['rate']})" if info['rate'] else ""
+        label = "Time to Empty" if info['status'].lower() == "discharging" else "Time to Full"
+        print(f"  {label:<14}: {info['time_remaining']}{rate_info}")
+    print(f"  Health        : {info['health']}")
+    if info['cycle_count']:
+        print(f"  Cycles        : {info['cycle_count']}")
+    print("========================================")
+
+
+if __name__ == "__main__":
+    main()

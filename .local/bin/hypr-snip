@@ -1,0 +1,464 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# hypr-snip: Native Hyprland Screenshot, Recording, OCR & Lens Utility
+# Obeying compositor theme, blur, screen-freeze & gesture disabling.
+# ==============================================================================
+
+set -uo pipefail
+
+# Directories
+SAVE_DIR="${XDG_SCREENSHOTS_DIR:-$HOME/Pictures/Screenshots}"
+RECORD_DIR="${XDG_VIDEOS_DIR:-$HOME/Videos}/Recordings"
+RECORD_INFO="/tmp/hypr-snip-record.info"
+mkdir -p "$SAVE_DIR" "$RECORD_DIR"
+
+# Clean up any lingering selector instances
+pkill -x slurp 2>/dev/null || true
+
+# Slurp overlay styling matching system aesthetic
+SLURP_STYLE=(-b "#00000077" -c "#89b4faff" -s "#89b4fa25" -w 2 -d)
+
+HYPRPICKER_PID=""
+
+# Notification helper: standard desktop notification obeying SwayNC DND
+notify() {
+    local title="$1"
+    local message="$2"
+    local icon="${3:-dialog-information}"
+    local urgency="${4:-normal}"
+
+    notify-send -a "Hyprland Snip" -i "$icon" -u "$urgency" -t 3500 "$title" "$message" 2>/dev/null || true
+}
+
+# Freeze screen and suspend compositor gestures / edge scrolling
+freeze_and_disable_gestures() {
+    # 1. Flag compositor to suspend gestures and edge scroll
+    hyprctl eval '_G.disable_gestures = true; if edgescroll then edgescroll.enabled = false end' >/dev/null 2>&1 || true
+
+    # 2. Render frozen snapshot of all screens
+    if command -v hyprpicker >/dev/null 2>&1; then
+        hyprpicker -r -z >/dev/null 2>&1 &
+        HYPRPICKER_PID=$!
+        sleep 0.15
+    fi
+}
+
+# Restore screen rendering and re-enable gestures
+unfreeze_and_restore_gestures() {
+    if [ -n "$HYPRPICKER_PID" ]; then
+        kill "$HYPRPICKER_PID" 2>/dev/null || true
+        wait "$HYPRPICKER_PID" 2>/dev/null || true
+        HYPRPICKER_PID=""
+    fi
+    pkill -f "hyprpicker -r -z" 2>/dev/null || true
+    hyprctl eval '_G.disable_gestures = false; if edgescroll then edgescroll.enabled = true end' >/dev/null 2>&1 || true
+}
+
+# Trap ensures cleanup happens on exit/abort
+trap unfreeze_and_restore_gestures EXIT INT TERM HUP
+
+# Select geometry interactively with frozen screen and disabled gestures
+select_geometry() {
+    freeze_and_disable_gestures
+    local geom
+    geom=$(slurp "${SLURP_STYLE[@]}")
+    local ret=$?
+    unfreeze_and_restore_gestures
+    if [ $ret -ne 0 ] || [ -z "$geom" ]; then
+        return 1
+    fi
+    echo "$geom"
+    return 0
+}
+
+# Timestamp for files
+timestamp() {
+    date +'%Y-%m-%d_%H.%M.%S'
+}
+
+# Area screenshot
+do_area() {
+    local geom
+    geom=$(select_geometry) || exit 0
+    local filename="Screenshot_$(timestamp).png"
+    local filepath="$SAVE_DIR/$filename"
+    if grim -g "$geom" "$filepath"; then
+        wl-copy -t image/png < "$filepath"
+        notify "Screenshot Saved" "File: $filename\nSaved in: ~/Pictures/Screenshots\nCopied to clipboard" "$filepath" "normal" 5
+    else
+        notify "Screenshot Error" "Failed to capture region" "dialog-error" "critical" 3
+        exit 1
+    fi
+}
+
+# Full desktop (all screens)
+do_fullscreen() {
+    local filename="Screenshot_$(timestamp).png"
+    local filepath="$SAVE_DIR/$filename"
+    if grim "$filepath"; then
+        wl-copy -t image/png < "$filepath"
+        notify "Full Screen Saved" "File: $filename\nSaved in: ~/Pictures/Screenshots\nCopied to clipboard" "$filepath" "normal" 5
+    else
+        notify "Screenshot Error" "Failed to capture full screen" "dialog-error" "critical" 3
+        exit 1
+    fi
+}
+
+# Active monitor
+do_output() {
+    local monitor
+    monitor=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty')
+    local filename="Screenshot_$(timestamp).png"
+    local filepath="$SAVE_DIR/$filename"
+    local ok=0
+    if [ -n "$monitor" ]; then
+        grim -o "$monitor" "$filepath" && ok=1
+    else
+        grim "$filepath" && ok=1
+    fi
+
+    if [ $ok -eq 1 ]; then
+        wl-copy -t image/png < "$filepath"
+        notify "Monitor Screenshot Saved" "Monitor: $monitor\nFile: $filename\nSaved in: ~/Pictures/Screenshots\nCopied to clipboard" "$filepath" "normal" 5
+    else
+        notify "Screenshot Error" "Failed to capture monitor" "dialog-error" "critical" 3
+        exit 1
+    fi
+}
+
+# Active window
+do_window() {
+    local geom
+    geom=$(hyprctl activewindow -j 2>/dev/null | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+    local title
+    title=$(hyprctl activewindow -j 2>/dev/null | jq -r '.title // "Active Window"')
+    if [ -z "$geom" ] || [ "$geom" = "null,null nullxnull" ]; then
+        notify "Screenshot Warning" "No active window detected" "dialog-warning" "normal" 0
+        exit 1
+    fi
+    local filename="Screenshot_$(timestamp).png"
+    local filepath="$SAVE_DIR/$filename"
+    if grim -g "$geom" "$filepath"; then
+        wl-copy -t image/png < "$filepath"
+        notify "Window Captured" "Window: $title\nFile: $filename\nSaved in: ~/Pictures/Screenshots\nCopied to clipboard" "$filepath" "normal" 5
+    else
+        notify "Screenshot Error" "Failed to capture active window" "dialog-error" "critical" 3
+        exit 1
+    fi
+}
+
+# Swappy annotation editor
+do_edit() {
+    local target="${1:-area}"
+    local filename="Screenshot_$(timestamp).png"
+    local filepath="$SAVE_DIR/$filename"
+    case "$target" in
+        full|fullscreen)
+            grim - | swappy -f - -o "$filepath"
+            ;;
+        output|screen)
+            local monitor
+            monitor=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty')
+            if [ -n "$monitor" ]; then
+                grim -o "$monitor" - | swappy -f - -o "$filepath"
+            else
+                grim - | swappy -f - -o "$filepath"
+            fi
+            ;;
+        window)
+            local geom
+            geom=$(hyprctl activewindow -j 2>/dev/null | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+            grim -g "$geom" - | swappy -f - -o "$filepath"
+            ;;
+        *)
+            local geom
+            geom=$(select_geometry) || exit 0
+            grim -g "$geom" - | swappy -f - -o "$filepath"
+            ;;
+    esac
+    if [ -f "$filepath" ]; then
+        wl-copy -t image/png < "$filepath"
+        notify "Annotation Saved" "File: $filename\nSaved in: ~/Pictures/Screenshots\nCopied to clipboard" "$filepath" "normal" 5
+    fi
+}
+
+# Scrolling screenshot via wayscrollshot
+do_scroll() {
+    if ! command -v wayscrollshot >/dev/null 2>&1; then
+        notify "Scrolling Screenshot Error" "wayscrollshot is not installed" "dialog-error" "critical" 3
+        exit 1
+    fi
+    local geom
+    geom=$(select_geometry) || exit 0
+    # Screen is now unfrozen and gestures active so scrolling works
+    local filename="Scrollshot_$(timestamp).png"
+    local filepath="$SAVE_DIR/$filename"
+    notify "Scrolling Capture Ready" "Scroll content slowly to stitch. Press Enter or click preview when done." "dialog-information" "normal" 1
+    wayscrollshot -o "$filepath" "$geom"
+    if [ -f "$filepath" ]; then
+        wl-copy -t image/png < "$filepath"
+        notify "Scrolling Screenshot Saved" "File: $filename\nSaved in: ~/Pictures/Screenshots\nCopied to clipboard" "$filepath" "normal" 5
+    fi
+}
+
+# Screen recording via wf-recorder
+do_record() {
+    # If already recording, stop it cleanly
+    if pgrep -x wf-recorder >/dev/null 2>&1; then
+        local rec_path=""
+        if [ -f "$RECORD_INFO" ]; then
+            rec_path=$(head -n 1 "$RECORD_INFO" 2>/dev/null)
+        fi
+
+        pkill -INT -x wf-recorder 2>/dev/null || true
+        # Wait for file headers to finalize
+        local count=0
+        while pgrep -x wf-recorder >/dev/null 2>&1 && [ $count -lt 30 ]; do
+            sleep 0.1
+            count=$((count + 1))
+        done
+        rm -f "$RECORD_INFO"
+
+        if [ -n "$rec_path" ] && [ -f "$rec_path" ]; then
+            local file_size
+            file_size=$(du -h "$rec_path" 2>/dev/null | cut -f1)
+            echo -n "$rec_path" | wl-copy
+            notify "Screen Recording Saved" "File: $(basename "$rec_path") ($file_size)\nSaved in: ~/Videos/Recordings\nPath copied to clipboard" "video-x-generic" "normal" 5
+        else
+            notify "Screen Recording Stopped" "Saved in: ~/Videos/Recordings" "video-x-generic" "normal" 5
+        fi
+        exit 0
+    fi
+
+    local target="${1:-area}"
+    local filename="Recording_$(timestamp).mp4"
+    local filepath="$RECORD_DIR/$filename"
+
+    case "$target" in
+        full|all)
+            echo "$filepath" > "$RECORD_INFO"
+            wf-recorder -f "$filepath" >/dev/null 2>&1 &
+            notify "Recording Started" "Target: Full Screen\nFile: $filename\nSaving to: ~/Videos/Recordings\nPress Super+Shift+R to stop." "media-record" "normal" 1
+            ;;
+        output|screen)
+            local monitor
+            monitor=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty')
+            echo "$filepath" > "$RECORD_INFO"
+            if [ -n "$monitor" ]; then
+                wf-recorder -o "$monitor" -f "$filepath" >/dev/null 2>&1 &
+            else
+                wf-recorder -f "$filepath" >/dev/null 2>&1 &
+            fi
+            notify "Recording Started" "Target: Monitor ($monitor)\nFile: $filename\nSaving to: ~/Videos/Recordings\nPress Super+Shift+R to stop." "media-record" "normal" 1
+            ;;
+        window)
+            local geom
+            geom=$(hyprctl activewindow -j 2>/dev/null | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+            echo "$filepath" > "$RECORD_INFO"
+            wf-recorder -g "$geom" -f "$filepath" >/dev/null 2>&1 &
+            notify "Recording Started" "Target: Active Window\nFile: $filename\nSaving to: ~/Videos/Recordings\nPress Super+Shift+R to stop." "media-record" "normal" 1
+            ;;
+        *)
+            local geom
+            geom=$(select_geometry) || exit 0
+            echo "$filepath" > "$RECORD_INFO"
+            wf-recorder -g "$geom" -f "$filepath" >/dev/null 2>&1 &
+            notify "Recording Started" "Target: Region Selection\nFile: $filename\nSaving to: ~/Videos/Recordings\nPress Super+Shift+R to stop." "media-record" "normal" 1
+            ;;
+    esac
+}
+
+# OCR text extraction
+do_ocr() {
+    if ! command -v tesseract >/dev/null 2>&1; then
+        notify "OCR Error" "tesseract is not installed" "dialog-error" "critical" 3
+        exit 1
+    fi
+    local geom
+    geom=$(select_geometry) || exit 0
+    local tmp_file="/tmp/ocr_$(date +%s).png"
+    grim -g "$geom" "$tmp_file" || exit 1
+    local text
+    text=$(tesseract "$tmp_file" stdout -l eng 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr -d '\f')
+    rm -f "$tmp_file"
+
+    if [ -n "$text" ]; then
+        wl-copy <<< "$text"
+        notify "Text Extracted & Copied" "$text" "edit-copy" "normal" 5
+    else
+        notify "OCR Result" "No readable text detected in selected region" "dialog-information" "normal" 0
+    fi
+}
+
+# Google Lens image search
+do_lens() {
+    local geom
+    geom=$(select_geometry) || exit 0
+    local tmp_dir="/tmp/hypr_snip_lens_$$"
+    mkdir -p "$tmp_dir"
+    local raw_png="$tmp_dir/raw.png"
+    local crop_img="$tmp_dir/image.jpg"
+    local mime_type="image/jpeg"
+    local lens_html="$tmp_dir/lens.html"
+
+    grim -g "$geom" "$raw_png" || { rm -rf "$tmp_dir"; exit 1; }
+
+    # Optimize image for instantaneous browser upload
+    if command -v magick >/dev/null 2>&1; then
+        magick "$raw_png" -strip -quality 88 "$crop_img" 2>/dev/null || crop_img="$raw_png"
+    else
+        crop_img="$raw_png"
+        mime_type="image/png"
+    fi
+
+    if [ "$crop_img" = "$raw_png" ]; then
+        mime_type="image/png"
+    fi
+
+    local b64
+    b64=$(base64 -w0 "$crop_img" 2>/dev/null || base64 "$crop_img" | tr -d '\n')
+
+    if [ -z "$b64" ]; then
+        rm -rf "$tmp_dir"
+        notify "Google Lens Error" "Failed to process image for search" "dialog-error" "critical"
+        exit 1
+    fi
+
+    cat <<EOF > "$lens_html"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Google Lens Search</title>
+</head>
+<body style="margin:0;display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#181825;color:#cdd6f4;font-family:system-ui">
+  <p style="font-size:18px;margin-bottom:12px;">Searching with Google Lens...</p>
+  <form id="f" method="POST" enctype="multipart/form-data" action="https://lens.google.com/v3/upload"></form>
+  <script>
+    (function() {
+      try {
+        var b = atob('$b64');
+        var a = new Uint8Array(b.length);
+        for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i);
+        var dt = new DataTransfer();
+        dt.items.add(new File([a], "image.jpg", { type: "$mime_type" }));
+        var inp = document.createElement("input");
+        inp.type = "file";
+        inp.name = "encoded_image";
+        inp.files = dt.files;
+        var form = document.getElementById("f");
+        form.appendChild(inp);
+        form.submit();
+      } catch(e) {
+        document.body.innerHTML = "<p style='color:#f38ba8;'>Upload error: " + e.message + "</p>";
+      }
+    })();
+  </script>
+</body>
+</html>
+EOF
+
+    notify "Google Lens" "Searching visual matches..." "web-browser"
+    xdg-open "$lens_html"
+
+    # Clean up temporary directory in background after browser loads
+    (sleep 30 && rm -rf "$tmp_dir") >/dev/null 2>&1 &
+}
+
+# Interactive fuzzel menu
+do_menu() {
+    local rec_text="󰕧  Record Screen (Start)"
+    if pgrep -x wf-recorder >/dev/null 2>&1; then
+        rec_text="󰕧  Record Screen [ACTIVE - Stop]"
+    fi
+
+    local options="󰹑  Select Area (Clipboard & File)
+󰍹  Full Screen (Desktop)
+󰍹  Active Monitor Full Screen
+󱂬  Active Window
+󰏫  Annotate with Editor (Swappy)
+󰝟  Scrolling Screenshot (Wayscrollshot)
+$rec_text
+󱔁  Extract Text (OCR to Clipboard)
+󰢏  Google Lens Image Search"
+
+    local choice
+    choice=$(printf "%s\n" "$options" | fuzzel --dmenu --no-exit-on-keyboard-focus-loss --prompt="Capture >> " -w 38 -l 10 2>/dev/null)
+    [ -z "$choice" ] && exit 0
+
+    # Ensure fuzzel has completely unmapped its Wayland surface before capturing
+    while pgrep -x fuzzel >/dev/null 2>&1; do
+        sleep 0.05
+    done
+    sleep 0.25
+
+    case "$choice" in
+        *"Select Area"*)
+            do_area
+            ;;
+        *"Full Screen (Desktop)"*)
+            do_fullscreen
+            ;;
+        *"Active Monitor"*)
+            do_output
+            ;;
+        *"Active Window"*)
+            do_window
+            ;;
+        *"Annotate with Editor"*)
+            do_edit area
+            ;;
+        *"Scrolling Screenshot"*)
+            do_scroll
+            ;;
+        *"Record Screen"*)
+            do_record area
+            ;;
+        *"Extract Text"*)
+            do_ocr
+            ;;
+        *"Google Lens"*)
+            do_lens
+            ;;
+    esac
+}
+
+# Entrypoint
+case "${1:-menu}" in
+    area|region)
+        do_area
+        ;;
+    full|fullscreen)
+        do_fullscreen
+        ;;
+    output|screen)
+        do_output
+        ;;
+    window)
+        do_window
+        ;;
+    edit|swappy)
+        shift
+        do_edit "${1:-area}"
+        ;;
+    scroll|scrolling)
+        do_scroll
+        ;;
+    record|rec)
+        shift
+        do_record "${1:-area}"
+        ;;
+    ocr|text)
+        do_ocr
+        ;;
+    lens|search)
+        do_lens
+        ;;
+    menu|gui)
+        do_menu
+        ;;
+    *)
+        echo "Usage: $(basename "$0") [area|full|output|window|edit|scroll|record|ocr|lens|menu]"
+        exit 1
+        ;;
+esac

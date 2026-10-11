@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Dependencies: fzf, column, hyprctl, systemctl, loginctl
+SELF="$(readlink -f "$0")"
+
+
+# -----------------------------------------------------------------------------
+# Color Palette (ANSI-C Escapes) & Catppuccin Mocha Theme
+# -----------------------------------------------------------------------------
+C_RESET=$'\033[0m'
+C_BOLD=$'\033[1m'
+C_DIM=$'\033[2;37m'
+C_GREEN=$'\033[1;32m'
+C_YELLOW=$'\033[1;33m'
+C_CYAN=$'\033[1;36m'
+C_BLUE=$'\033[1;34m'
+C_RED=$'\033[1;31m'
+C_MAGENTA=$'\033[1;35m'
+C_PEACH=$'\033[38;2;250;179;135m'
+C_MAUVE=$'\033[38;2;203;166;247m'
+
+FZF_THEME=(
+  --ansi
+  --border=rounded
+  --border-label=" 󰐥 Session & Power Menu "
+  --border-label-pos=2
+  --layout=reverse
+  --inline-info
+  --prompt=" Action ❯ "
+  --pointer="▶"
+  --color="border:#585b70,label:#89b4fa,header:#cdd6f4,prompt:#f38ba8,pointer:#f5e0dc,info:#a6adc8,hl:#f38ba8,hl+:#a6e3a1"
+)
+
+# -----------------------------------------------------------------------------
+# Table Builder
+# -----------------------------------------------------------------------------
+build_table() {
+  (
+    printf "%b  KEY│ICON│ACTION│DESCRIPTION%b\n" "$C_BOLD" "$C_RESET"
+    printf "  %b[1]%b│%b  %b│Lock Screen│%bLock session immediately%b\n" "$C_CYAN" "$C_RESET" "$C_YELLOW" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[2]%b│%b 󰒲 %b│Suspend / Sleep│%bSuspend computer to RAM%b\n" "$C_CYAN" "$C_RESET" "$C_BLUE" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[3]%b│%b 󰒯 %b│Hibernate│%bSave state to disk & power off%b\n" "$C_CYAN" "$C_RESET" "$C_MAGENTA" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[4]%b│%b 󰜉 %b│Reboot│%bRestart operating system%b\n" "$C_CYAN" "$C_RESET" "$C_YELLOW" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[5]%b│%b 󰐥 %b│Power Off│%bShut down system completely%b\n" "$C_CYAN" "$C_RESET" "$C_RED" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[6]%b│%b 󰍃 %b│Log Out│%bExit current Hyprland session%b\n" "$C_CYAN" "$C_RESET" "$C_PEACH" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[7]%b│%b 󰒓 %b│UEFI Firmware│%bReboot into BIOS/UEFI settings%b\n" "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[8]%b│%b 󰢮 %b│Task Manager│%bLaunch btop system resource monitor%b\n" "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[9]%b│%b 󰍹 %b│Screen Off│%bTurn off display output (DPMS)%b\n" "$C_CYAN" "$C_RESET" "$C_MAUVE" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf "  %b[0]%b│%b 󰑐 %b│Reload Hyprland│%bReload compositor configuration%b\n" "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_DIM" "$C_RESET"
+  ) | column -t -s '│' -o ' │ '
+}
+
+# -----------------------------------------------------------------------------
+# Preview Generator
+# -----------------------------------------------------------------------------
+preview_action() {
+  local row="${1:-}"
+
+  # Collect system metrics
+  local host user uptime_str bat_cap bat_stat mem_used mem_total mem_pct cpu_load
+  local client_count ws_count
+
+  user="${USER:-$(whoami)}"
+  host="$(cat /etc/hostname 2>/dev/null || uname -n)"
+  uptime_str="$(uptime -p 2>/dev/null | sed 's/^up //' || echo 'unknown')"
+
+  bat_cap="$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -n1 || echo 'N/A')"
+  bat_stat="$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -n1 || echo 'Unknown')"
+  local bat_col="$C_GREEN"
+  if [ "$bat_cap" != "N/A" ]; then
+    if [ "$bat_cap" -le 20 ]; then
+      bat_col="$C_RED"
+    elif [ "$bat_cap" -le 50 ]; then
+      bat_col="$C_YELLOW"
+    fi
+  fi
+
+  mem_used=$(free -m 2>/dev/null | awk '/Mem:/ {print $3}')
+  mem_total=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
+  mem_pct=$(( mem_used * 100 / mem_total ))
+  cpu_load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo "N/A")
+
+  client_count=$(hyprctl clients -j 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
+  ws_count=$(hyprctl workspaces -j 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
+
+  printf "${C_BOLD}╭── System Hardware & Status ───────╮${C_RESET}\n"
+  printf "  ${C_DIM}User / Host  :${C_RESET} ${C_BOLD}%s@%s${C_RESET}\n" "$user" "$host"
+  printf "  ${C_DIM}Uptime       :${C_RESET} %s\n" "$uptime_str"
+  printf "  ${C_DIM}Battery      :${C_RESET} %s%s%%%s (%s)\n" "$bat_col" "$bat_cap" "$C_RESET" "$bat_stat"
+  printf "  ${C_DIM}Memory (RAM) :${C_RESET} %s MB / %s MB (%s%%)\n" "$mem_used" "$mem_total" "$mem_pct"
+  printf "  ${C_DIM}CPU Load     :${C_RESET} %s\n" "$cpu_load"
+  printf "  ${C_DIM}Hyprland     :${C_RESET} %s clients on %s workspaces\n" "$client_count" "$ws_count"
+  printf "${C_BOLD}╰───────────────────────────────────╯${C_RESET}\n\n"
+
+  # Action-specific inspector
+  local act_title act_cmd act_desc act_tag
+  if [[ "$row" =~ (Lock|\[1\]) ]]; then
+    act_title="Lock Desktop Session"
+    act_cmd="loginctl lock-session"
+    act_tag="${C_YELLOW}SECURITY${C_RESET}"
+    act_desc="Locks display output immediately. Requires user authentication password to resume session. Background apps remain running."
+  elif [[ "$row" =~ (Suspend|Sleep|\[2\]) ]]; then
+    act_title="Suspend / Sleep"
+    act_cmd="systemctl suspend"
+    act_tag="${C_BLUE}POWER SAVE${C_RESET}"
+    act_desc="Puts machine into ACPI S3 / modern standby low-power RAM state. Wakes immediately upon keypress or lid open."
+  elif [[ "$row" =~ (Hibernate|\[3\]) ]]; then
+    act_title="Hibernate System"
+    act_cmd="systemctl hibernate"
+    act_tag="${C_MAGENTA}PERSIST STATE${C_RESET}"
+    act_desc="Writes kernel state and RAM to swap partition/file, then completely powers off hardware. Restores on next boot."
+  elif [[ "$row" =~ (Reboot|\[4\]) ]]; then
+    act_title="Restart Operating System"
+    act_cmd="systemctl reboot"
+    act_tag="${C_YELLOW}SYSTEM RESTART${C_RESET}"
+    act_desc="Safely flushes filesystem buffers, terminates processes, and reboots system into the default GRUB/systemd-boot entry."
+  elif [[ "$row" =~ (Power[[:space:]]Off|\[5\]) ]]; then
+    act_title="Full System Shutdown"
+    act_cmd="systemctl poweroff"
+    act_tag="${C_RED}HARDWARE HALT${C_RESET}"
+    act_desc="Terminates all user services, unmounts filesystems cleanly, and cuts machine power completely."
+  elif [[ "$row" =~ (Log[[:space:]]Out|\[6\]) ]]; then
+    act_title="Exit Hyprland Session"
+    act_cmd="hyprctl dispatch exit"
+    act_tag="${C_PEACH}SESSION LOGOUT${C_RESET}"
+    act_desc="Closes Hyprland Wayland compositor and returns to SDDM display manager login screen."
+  elif [[ "$row" =~ (UEFI|Firmware|\[7\]) ]]; then
+    act_title="Reboot to UEFI Firmware"
+    act_cmd="systemctl reboot --firmware-setup"
+    act_tag="${C_CYAN}BIOS / FIRMWARE${C_RESET}"
+    act_desc="Reboots computer directly into motherboard UEFI BIOS setup interface without needing to press Fn/F2/Del."
+  elif [[ "$row" =~ (Task[[:space:]]Manager|\[8\]) ]]; then
+    act_title="Launch Resource Monitor"
+    act_cmd="kitty -1 btop --force-utf"
+    act_tag="${C_GREEN}DIAGNOSTICS${C_RESET}"
+    act_desc="Spawns btop interactive resource monitor in a dedicated terminal window showing processes, CPU, GPU, memory, and disks."
+  elif [[ "$row" =~ (Screen[[:space:]]Off|\[9\]) ]]; then
+    act_title="Turn Off Display Backlight"
+    act_cmd="hyprctl dispatch dpms off"
+    act_tag="${C_MAUVE}DISPLAY DPMS${C_RESET}"
+    act_desc="Puts monitors into sleep/standby mode immediately. Moving the mouse or pressing any key turns display back on."
+  elif [[ "$row" =~ (Reload|\[0\]) ]]; then
+    act_title="Reload Hyprland Configuration"
+    act_cmd="hyprctl reload"
+    act_tag="${C_GREEN}COMPOSITOR${C_RESET}"
+    act_desc="Re-evaluates Hyprland configuration files without restarting session or interrupting active running apps."
+  else
+    act_title="Select an Action"
+    act_cmd="Navigate using ↑ / ↓ or numeric keys"
+    act_tag="${C_DIM}SESSION${C_RESET}"
+    act_desc="Select any power or session action from the list and press Enter to execute."
+  fi
+
+  printf "${C_BOLD}╭── Action Inspector ───────────────╮${C_RESET}\n"
+  printf "  ${C_DIM}Action   :${C_RESET} %s  [%s]\n" "${act_title}" "${act_tag}"
+  printf "  ${C_DIM}Command  :${C_RESET} ${C_CYAN}%s${C_RESET}\n" "${act_cmd}"
+  printf "  ${C_DIM}Details  :${C_RESET}\n"
+  echo "$act_desc" | fold -s -w 34 | sed 's/^/    /'
+  printf "${C_BOLD}╰───────────────────────────────────╯${C_RESET}\n\n"
+
+  printf "${C_DIM}  Enter: Execute  │  Esc / Ctrl-C: Cancel${C_RESET}\n"
+}
+
+# -----------------------------------------------------------------------------
+# Subcommand Dispatcher
+# -----------------------------------------------------------------------------
+case "${1:-}" in
+  __preview)
+    preview_action "${2:-}"
+    exit 0
+    ;;
+  __table)
+    build_table
+    exit 0
+    ;;
+esac
+
+# -----------------------------------------------------------------------------
+# Main Selector
+# -----------------------------------------------------------------------------
+selected=$(
+  build_table | \
+  fzf "${FZF_THEME[@]}" \
+    --delimiter="│" \
+    --header-lines=1 \
+    --header-lines-border=bottom \
+    --preview="\"$SELF\" __preview {}" \
+    --preview-window="right:45%:border-rounded" \
+    --preview-label=" 󰄬 System & Action Overview " \
+    --bind="ctrl-/:toggle-preview"
+) || exit 0
+
+[ -z "$selected" ] && exit 0
+
+# -----------------------------------------------------------------------------
+# Action Execution
+# -----------------------------------------------------------------------------
+key=$(echo "$selected" | grep -o -E '\[[0-9]\]' | tr -d '[]' | head -n1 || true)
+
+case "$key" in
+  1) # Lock Screen
+    hyprctl dispatch 'hl.dsp.exec_cmd("pidof hyprlock || hyprlock")' 2>/dev/null || (nohup hyprlock >/dev/null 2>&1 &)
+    ;;
+  2) # Suspend
+    systemctl suspend || loginctl suspend
+    ;;
+  3) # Hibernate
+    systemctl hibernate || loginctl hibernate
+    ;;
+  4) # Reboot
+    systemctl reboot || reboot || loginctl reboot
+    ;;
+  5) # Power Off
+    systemctl poweroff || loginctl poweroff
+    ;;
+  6) # Log Out
+    pkill -i Hyprland
+    ;;
+  7) # UEFI Firmware
+    systemctl reboot --firmware-setup || loginctl reboot --firmware-setup
+    ;;
+  8) # Task Manager
+    hyprctl dispatch 'hl.dsp.exec_cmd("kitty --title=\"System Monitor\" -e btop --force-utf")' 2>/dev/null || (nohup kitty --title="System Monitor" -e btop --force-utf >/dev/null 2>&1 &)
+    ;;
+  9) # Screen Off
+    hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'
+    ;;
+  0) # Reload Hyprland
+    hyprctl reload 2>/dev/null || true
+    notify-send -u normal "Hyprland" "Configuration reloaded" 2>/dev/null || true
+    ;;
+  *)
+    case "$selected" in
+      *Lock*)
+        hyprctl dispatch 'hl.dsp.exec_cmd("pidof hyprlock || hyprlock")' 2>/dev/null || (nohup hyprlock >/dev/null 2>&1 &)
+        ;;
+      *Suspend*|*Sleep*)
+        systemctl suspend || loginctl suspend
+        ;;
+      *Hibernate*)
+        systemctl hibernate || loginctl hibernate
+        ;;
+      *Reboot*)
+        systemctl reboot || reboot || loginctl reboot
+        ;;
+      *Power*)
+        systemctl poweroff || loginctl poweroff
+        ;;
+      *Log*Out*|*Logout*)
+        pkill -i Hyprland
+        ;;
+      *UEFI*|*Firmware*)
+        systemctl reboot --firmware-setup || loginctl reboot --firmware-setup
+        ;;
+      *Task*|*btop*)
+        hyprctl dispatch 'hl.dsp.exec_cmd("kitty --title=\"System Monitor\" -e btop --force-utf")' 2>/dev/null || (nohup kitty --title="System Monitor" -e btop --force-utf >/dev/null 2>&1 &)
+        ;;
+      *Screen*)
+        hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'
+        ;;
+      *Reload*)
+        hyprctl reload 2>/dev/null || true
+        notify-send -u normal "Hyprland" "Configuration reloaded" 2>/dev/null || true
+        ;;
+    esac
+    ;;
+esac

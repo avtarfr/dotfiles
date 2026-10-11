@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Workspace 1 TUI Dashboard & Workflow Starter
+# Spawns:
+#   - 4-window tiled layout on Workspace 1:
+#       * Top-Left:     btop (system monitor)
+#       * Top-Right:    spotify_player (music player)
+#       * Bottom-Left:  netcenter (network & connectivity center)
+#       * Bottom-Right: pulsemixer (audio & volume mixer)
+
+
+set -euo pipefail
+
+# Give Hyprland a moment to settle if running immediately on startup
+if [[ "${1:-}" == "--startup" ]]; then
+    sleep 1.5
+fi
+
+# Clean up existing ws1 windows safely if re-run
+python3 -c "
+import subprocess, json, os, signal
+try:
+    clients = json.loads(subprocess.check_output(['hyprctl', 'clients', '-j']))
+    for c in clients:
+        if c.get('class', '').startswith('ws1-') or c.get('class') == 'ws-modal':
+            try: os.kill(c['pid'], signal.SIGTERM)
+            except ProcessLookupError: pass
+except Exception:
+    pass
+" 2>/dev/null || true
+sleep 0.3
+
+# Switch to Workspace 1
+hyprctl dispatch "hl.dsp.focus({ workspace = 1 })" 2>/dev/null || hyprctl dispatch workspace 1 2>/dev/null || true
+sleep 0.2
+
+wait_for_window() {
+    local cls="$1"
+    local count=0
+    while ! hyprctl clients -j 2>/dev/null | jq -e --arg c "$cls" '.[] | select(.class == $c)' >/dev/null; do
+        sleep 0.05
+        count=$((count + 1))
+        if [[ $count -ge 30 ]]; then
+            break
+        fi
+    done
+    sleep 0.15
+}
+
+# 1. Top-Left: btop (occupies full screen initially)
+# Overrides kitty margin to 4 and font_size to 10.5 so btop gets 26+ rows (needs >= 24)
+setsid kitty --class=ws1-btop -o window_margin_width=4 -o font_size=10.5 --title="System Monitor" -e btop --force-utf </dev/null >/dev/null 2>&1 &
+wait_for_window "ws1-btop"
+
+# 2. Top-Right: spotify_player (splits btop vertically: lands on Top-Right [965, 6])
+setsid kitty --class=ws1-spotify --title="Spotify Player" -e spotify_player </dev/null >/dev/null 2>&1 &
+wait_for_window "ws1-spotify"
+
+# 3. Explicitly focus btop (left column) and spawn netcenter (splits btop horizontally: lands on Bottom-Left [6, 545])
+hyprctl dispatch "hl.dsp.focus({ window = 'class:ws1-btop' })" 2>/dev/null || true
+sleep 0.15
+setsid kitty --class=ws1-netcenter --title="Network Center" -e netcenter </dev/null >/dev/null 2>&1 &
+wait_for_window "ws1-netcenter"
+
+# 4. Explicitly focus spotify_player (right column) and spawn pulsemixer (splits spotify horizontally: lands on Bottom-Right [965, 545])
+hyprctl dispatch "hl.dsp.focus({ window = 'class:ws1-spotify' })" 2>/dev/null || true
+sleep 0.15
+setsid kitty --class=ws1-pulsemixer --title="Audio Mixer" -e pulsemixer </dev/null >/dev/null 2>&1 &
+wait_for_window "ws1-pulsemixer"
+
+disown -a

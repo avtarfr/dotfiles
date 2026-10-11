@@ -1,0 +1,3 @@
+[providers]
+default = ["files", "websearch", "desktopapplications", "clipboard", "calc", "menus"]
+empty = ["websearch", "files", "desktopapplications"]

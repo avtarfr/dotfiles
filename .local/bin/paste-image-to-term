@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+# Check if the clipboard holds an image
+if wl-paste --list-types | grep -q 'image/png'; then
+    DIR="$HOME/Pictures/Screenshots"
+    mkdir -p "$DIR"
+    IMG="$DIR/clip_$(date +%Y%m%d_%H%M%S).png"
+    wl-paste --type image/png > "$IMG"
+    # Type the path into the active terminal window
+    wtype "$IMG "
+else
+    # Fall back to normal Wayland paste
+    wtype -M ctrl -k v -m ctrl
+fi

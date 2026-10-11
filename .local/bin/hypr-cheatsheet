@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Hyprland Interactive Keybinds Cheatsheet
+# High-performance, categorized TUI modal powered by fzf
+
+set -euo pipefail
+
+SCRIPT_PATH="$(realpath "$0")"
+
+# Database of all Hyprland keybindings
+# Format: KEY | CATEGORY | ACTION | COMMAND | SOURCE | DETAILS
+get_data() {
+    cat <<'EOF'
+SUPER + Return	Apps	Launch terminal emulator	kitty	hyprland/keybinds.lua	Opens the primary terminal emulator (kitty) with fish shell
+SUPER + T	Apps	Launch terminal emulator	kitty	hyprland/keybinds.lua	Alternative binding for launching kitty terminal
+CTRL + ALT + T	Apps	Launch terminal emulator	kitty	hyprland/keybinds.lua	Standard Linux shortcut for launching kitty terminal
+SUPER + E	Apps	Open file manager (Yazi)	kitty -1 fish -c yazi	hyprland/keybinds.lua	Launches Yazi TUI file manager inside a kitty terminal
+SUPER + ALT + E	Apps	GUI File manager (Nautilus)	nautilus --new-window	custom/keybinds.lua	Opens GNOME Files graphical explorer with full thumbnail grid view
+SUPER + W	Apps	Launch web browser	zen-browser	hyprland/keybinds.lua	Opens default web browser (Zen, Chrome, or Firefox)
+SUPER + C	Apps	Launch code editor	code	hyprland/keybinds.lua	Opens VS Code / Windsurf / Kate
+SUPER + X	Apps	Launch text editor	kate	hyprland/keybinds.lua	Opens lightweight text editor (Kate / GNOME Text Editor)
+SUPER + Space	Apps	Toggle application launcher (Ulauncher)	ulauncher-toggle	custom/keybinds.lua	Opens Ulauncher search prompt for apps, files, and extensions
+SUPER + SUPER_L	Apps	Toggle application launcher (Ulauncher)	ulauncher-toggle	custom/keybinds.lua	Opens Ulauncher search prompt on Super key release
+SUPER + A	Apps	Launch Antigravity CLI (agy)	kitty --directory ~/Documents --title 'agy' agy	custom/keybinds.lua	Opens Antigravity AI pair programming CLI in ~/Documents
+SUPER + Period	Apps	Floating emoji picker (Emote)	~/.local/bin/floating-emote.sh	custom/keybinds.lua	Pops up floating Emote emoji selector under cursor
+SUPER + B	System	Check battery status & health	~/.local/bin/battery-info	custom/keybinds.lua	Shows percentage, status, discharge estimate, health, and wattage
+XF86Battery	System	Check battery status & health	~/.local/bin/battery-info	custom/keybinds.lua	Hardware Fn battery key check for status, discharge time, and health
+SUPER + I	Apps	Open system settings	XDG_CURRENT_DESKTOP=gnome systemsettings	hyprland/keybinds.lua	Opens GUI system settings application
+CTRL + SHIFT + Escape	Apps	Open task manager (btop)	kitty -1 btop --force-utf	hyprland/keybinds.lua	Opens btop interactive resource monitor in kitty
+CTRL + SUPER + SHIFT + ALT + W	Apps	Launch office suite	wps || libreoffice	hyprland/keybinds.lua	Opens WPS Office or LibreOffice suite
+CTRL + SUPER + N	Centers	Network Center TUI	kitty --class=netcenter -e ~/.local/bin/netcenter	hyprland/keybinds.lua	Unified TUI for Wi-Fi live scanning, Hotspot, VPN, Bluetooth, and RFKill
+CTRL + SUPER + V	Centers	Audio Mixer TUI (pulsemixer)	kitty --class=pulsemixer-modal -e pulsemixer	hyprland/keybinds.lua	Terminal sound mixer controlling sinks, sources, streams, and volumes
+SUPER + Tab	Layout	Toggle scroll overview	hl.plugin.scrolloverview.overview("toggle all")	custom/keybinds.lua	Toggles scroll layout workspace overview tape
+CTRL + SUPER + T	Utils	Change desktop wallpaper	~/.local/bin/switchwall	custom/keybinds.lua	Opens wallpaper picker dialog, changes hyprpaper, and regenerates Matugen color scheme
+CTRL + SUPER + ALT + T	Utils	Random desktop wallpaper	~/.local/bin/switchwall --random	custom/keybinds.lua	Picks a random wallpaper from ~/Pictures/wallpapers and syncs full system palette
+SUPER + N	Notifs	Notification Center GUI	swaync-client -t -sw	hyprland/keybinds.lua	Toggles the slide-out SwayNC notification center and history
+CTRL + SUPER + I	Centers	Toggle Keep-Awake (Caffeine)	~/.local/bin/keep-awake	hyprland/keybinds.lua	Pauses or resumes hypridle sleep timer to prevent display lock
+ALT + Tab	Centers	Window Switcher GUI (hyprswitch)	hyprswitch gui --mod-key ALT --key tab --close mod-key-release	custom/keybinds.lua	Fast alt-tab window switcher overlay
+ALT + SHIFT + Tab	Centers	Window Switcher Reverse (hyprswitch)	hyprswitch gui --mod-key ALT --key tab --close mod-key-release --reverse	custom/keybinds.lua	Fast alt-tab reverse window switcher
+SUPER + Slash	Centers	Open this Keybinds Cheatsheet	kitty --class=cheatsheet-modal -e ~/.local/bin/hypr-cheatsheet	hyprland/keybinds.lua	Opens this interactive TUI cheatsheet modal
+SUPER + SHIFT + N	Notifs	Toggle Do Not Disturb (DND)	swaync-client -d -sw	hyprland/keybinds.lua	Silences/pauses or resumes incoming desktop notifications
+CTRL + Space	Notifs	Dismiss current notification	swaync-client --close-latest	hyprland/keybinds.lua	Closes the most recently shown notification toast
+CTRL + SHIFT + Space	Notifs	Dismiss all notifications	swaync-client -C	hyprland/keybinds.lua	Dismisses all currently active notification toasts
+SUPER + Q	Window	Close focused window safely	hyprctl dispatch closewindow	custom/keybinds.lua	Closes focused window on current workspace safely, avoiding wrong window closes
+SUPER + SHIFT + ALT + Q	Window	Forcefully zap / kill window	hyprctl kill	hyprland/keybinds.lua	Brings up crosshair to forcefully terminate an unresponsive window
+SUPER + Left / Right	Window	Focus window in direction (left/right)	hyprctl dispatch movefocus l/r	hyprland/keybinds.lua	Moves keyboard focus to the adjacent window horizontally
+SUPER + Up / Down	Window	Focus window in direction (up/down)	hyprctl dispatch movefocus u/d	hyprland/keybinds.lua	Moves keyboard focus to the adjacent window vertically
+SUPER + [ / ]	Window	Focus window left / right	hyprctl dispatch movefocus l/r	hyprland/keybinds.lua	Moves keyboard focus using bracket keys
+SUPER + SHIFT + Left / Right	Window	Move window in direction (left/right)	hyprctl dispatch movewindow l/r	hyprland/keybinds.lua	Swaps active window with the neighbor horizontally
+SUPER + SHIFT + Up / Down	Window	Move window in direction (up/down)	hyprctl dispatch movewindow u/d	hyprland/keybinds.lua	Swaps active window with the neighbor vertically
+SUPER + ALT + Space	Window	Toggle floating / tiled mode	hyprctl dispatch togglefloating	hyprland/keybinds.lua	Switches active window between tiled layout and floating state
+SUPER + D	Window	Toggle maximize window	hyprctl dispatch fullscreen 1	hyprland/keybinds.lua	Maximizes window keeping gaps and layout context
+SUPER + F	Window	Toggle true fullscreen	hyprctl dispatch fullscreen 0	hyprland/keybinds.lua	Enters complete fullscreen mode without bars or gaps
+SUPER + ALT + F	Window	Toggle fullscreen spoof	hyprctl dispatch fullscreenstate 0 3	hyprland/keybinds.lua	Spoofs fullscreen state for stubborn games/applications
+SUPER + P	Window	Pin window to all workspaces	hyprctl dispatch pin	hyprland/keybinds.lua	Pins a floating window so it remains visible on all workspaces
+SUPER + ; / '	Window	Adjust split ratio (-0.1 / +0.1)	hyprctl dispatch splitratio +/-0.1	hyprland/keybinds.lua	Shrinks or expands the master/slave tile split boundary
+CTRL + SUPER + Backslash	Window	Resize window to 640x480	hyprctl dispatch resizewindowpixel exact 640 480	hyprland/keybinds.lua	Quickly resizes an oversized floating window to compact size
+SUPER + Left-Click + Drag	Window	Move window interactively	hyprctl dispatch movemouse	hyprland/keybinds.lua	Hold Super and drag left mouse button to move any window
+SUPER + Right-Click + Drag	Window	Resize window interactively	hyprctl dispatch resizemouse	hyprland/keybinds.lua	Hold Super and drag right mouse button to resize any window
+SUPER + 1 .. 9, 0	Workspace	Focus workspace 1 to 10	hyprctl dispatch workspace N	hyprland/keybinds.lua	Directly jumps to the numbered workspace
+SUPER + ALT + 1 .. 9, 0	Workspace	Send window to workspace 1 to 10	hyprctl dispatch movetoworkspacesilent N	hyprland/keybinds.lua	Silently moves active window to the target workspace
+SUPER + Shift + Page_Up/Dn	Workspace	Send window to left/right workspace	hyprctl dispatch movetoworkspace r-1 / r+1	hyprland/keybinds.lua	Moves active window to adjacent workspace relative to current
+CTRL + SUPER + Left / Right	Workspace	Focus left / right workspace	hyprctl dispatch workspace r-1 / r+1	hyprland/keybinds.lua	Navigates one workspace to the left or right
+SUPER + Page_Up / Page_Down	Workspace	Focus left / right workspace	hyprctl dispatch workspace r-1 / r+1	hyprland/keybinds.lua	Navigates one workspace to the left or right using page keys
+SUPER + Mouse Scroll Up/Dn	Workspace	Focus left / right workspace	hyprctl dispatch workspace +1 / -1	hyprland/keybinds.lua	Scroll on desktop or while holding Super to cycle workspaces
+CTRL + SUPER + [ / ]	Workspace	Focus workspace -1 / +1	hyprctl dispatch workspace -1 / +1	hyprland/keybinds.lua	Steps one workspace backward or forward
+CTRL + SUPER + Up / Down	Workspace	Focus workspace -5 / +5	hyprctl dispatch workspace r-5 / r+5	hyprland/keybinds.lua	Jumps 5 workspaces backward or forward
+SUPER + S / Mouse 275	Workspace	Toggle Special Workspace (Scratchpad)	hyprctl dispatch togglespecialworkspace special	hyprland/keybinds.lua	Pops up or hides the floating scratchpad workspace
+SUPER + ALT + S	Workspace	Send active window to Scratchpad	hyprctl dispatch movetoworkspacesilent special:special	hyprland/keybinds.lua	Hides the active window into the scratchpad for quick recall
+CTRL + SUPER + S	Workspace	Toggle Special Workspace	hyprctl dispatch togglespecialworkspace special	hyprland/keybinds.lua	Alternative shortcut for toggling the scratchpad
+SUPER + g	Layout	Toggle scroll overview	hl.plugin.scrolloverview.overview("toggle all")	custom/keybinds.lua	Toggles scroll layout workspace overview tape
+SUPER + SHIFT + 1 / D	Layout	Shift dwindle / scroll layout	toggle_scroll_shift()	custom/keybinds.lua	Switches screen layout between standard dwindle and continuous scroll
+SUPER + ALT + Left / Right	Layout	Scroll page navigation (left/right)	scrolldwindle.scroll_left/right	custom/keybinds.lua	Scrolls to previous or next page along the layout tape
+SUPER + SHIFT + Left / Right	Window	Shift window to prev/next page	scrolldwindle.shift_window("left/right")	custom/keybinds.lua	Moves active window to adjacent page along the layout tape
+SUPER + SHIFT + Up / Down	Window	Shift window up/down quadrant	scrolldwindle.shift_window("up/down")	custom/keybinds.lua	Moves active window between upper and lower quadrants
+SUPER + V	Utils	Clipboard history (nwg-clipman)	nwg-clipman	custom/keybinds.lua	Floating clipboard manager with search, delete, and copy history
+Print / Win + Print	Utils	Interactive screenshot menu	hypr-snip menu	custom/keybinds.lua	Blurred Fuzzel menu for all capture modes (FnLock ON/OFF via Print & XF86)
+Super+Shift+Print / Win+Shift+A	Utils	Direct region snip	hypr-snip area	custom/keybinds.lua	Instant region selection to clipboard and file (FnLock ON/OFF via Print & XF86)
+Shift + Print / Win+Shift+E	Utils	Snip & annotate (Swappy)	hypr-snip edit	custom/keybinds.lua	Interactive region snip opened directly in Swappy editor (FnLock ON/OFF)
+Ctrl + Print	Utils	Full desktop screenshot	hypr-snip full	custom/keybinds.lua	Captures all screens to file (~/Pictures/Screenshots) and clipboard (FnLock ON/OFF)
+Alt + Print	Utils	Active window screenshot	hypr-snip window	custom/keybinds.lua	Captures currently focused window to file and clipboard (FnLock ON/OFF)
+Super + Alt + Print	Utils	Scrolling screenshot	hypr-snip scroll	custom/keybinds.lua	Wayscrollshot interactive scrolling window capture (FnLock ON/OFF)
+Super+Ctrl+Print / Win+Ctrl+L	Utils	Google Lens region search	hypr-snip lens	custom/keybinds.lua	Snips screen region and searches visual matches in Google Lens (FnLock ON/OFF)
+Ctrl+Shift+Print / Win+Shift+R	Utils	Screen recording toggle	hypr-snip record	custom/keybinds.lua	Select region to start/stop MP4 screen recording with wf-recorder (FnLock ON/OFF)
+Ctrl+Alt+Print / Win+Shift+T	Utils	OCR text snip >> clipboard	hypr-snip ocr	custom/keybinds.lua	Snips screen region and extracts text via Tesseract OCR to clipboard (FnLock ON/OFF)
+SUPER + SHIFT + S	Utils	Interactive screenshot menu	hypr-snip menu	custom/keybinds.lua	Standard Windows-compatible shortcut for interactive capture menu
+SUPER + SHIFT + P	Utils	Interactive screenshot menu	hypr-snip menu	custom/keybinds.lua	Alternative keyboard shortcut for interactive capture menu
+SUPER + SHIFT + C	Utils	Color picker >> clipboard	hyprpicker -a	hyprland/keybinds.lua	Magnifying eyedropper tool to copy hex color code (#RRGGBB)
+SUPER + SHIFT + ALT + M273	Utils	AI summary for selected text	~/.config/hypr/hyprland/scripts/ai/primary-buffer-query.sh	hyprland/keybinds.lua	Sends highlighted text buffer to Ollama local LLM for summary
+XF86AudioRaiseVolume	Media	Increase audio volume (SwayOSD)	swayosd-client --output-volume raise	hyprland/keybinds.lua	Raises output sink volume with floating OSD indicator
+XF86AudioLowerVolume	Media	Decrease audio volume (SwayOSD)	swayosd-client --output-volume lower	hyprland/keybinds.lua	Lowers output sink volume with floating OSD indicator
+XF86AudioMute	Media	Toggle audio mute (SwayOSD)	swayosd-client --output-volume mute-toggle	hyprland/keybinds.lua	Toggles output sink mute with floating OSD indicator
+SUPER + SHIFT + M	Media	Toggle audio mute	wpctl set-mute @DEFAULT_SINK@ toggle	hyprland/keybinds.lua	Keyboard shortcut to mute/unmute audio sink
+XF86AudioMicMute	Media	Toggle microphone mute	wpctl set-mute @DEFAULT_SOURCE@ toggle	hyprland/keybinds.lua	Mutes or unmutes microphone input source
+SUPER + ALT + M	Media	Toggle microphone mute	wpctl set-mute @DEFAULT_SOURCE@ toggle	hyprland/keybinds.lua	Keyboard shortcut to mute/unmute microphone input
+XF86MonBrightnessUp	Media	Increase screen brightness (SwayOSD)	swayosd-client --brightness raise	hyprland/keybinds.lua	Raises display backlight with floating OSD indicator
+XF86MonBrightnessDown	Media	Decrease screen brightness (SwayOSD)	swayosd-client --brightness lower	hyprland/keybinds.lua	Lowers display backlight with floating OSD indicator
+XF86AudioPlay / Pause	Media	Toggle media play / pause	playerctl play-pause	hyprland/keybinds.lua	Controls active media player (Spotify, browser, mpv)
+XF86AudioNext	Media	Next media track	playerctl next	hyprland/keybinds.lua	Skips to next track in active media player
+XF86AudioPrev	Media	Previous media track	playerctl previous	hyprland/keybinds.lua	Rewinds to start of track or previous track
+SUPER + SHIFT + B	Media	Previous media track	playerctl previous	hyprland/keybinds.lua	Keyboard shortcut to skip backward
+XF86RFKill	Media	Toggle screen refresh rate	~/.config/hypr/hyprland/scripts/toggle-refresh.sh	custom/keybinds.lua	Cycles display refresh rate between 60Hz and high refresh (144Hz)
+SUPER + Equal / Minus	Media	Desktop zoom in / zoom out	hyprctl keyword cursor:zoom_factor +/-0.3	hyprland/keybinds.lua	Smoothly magnifies desktop view around the cursor
+SUPER + L	Session	Lock session screen	loginctl lock-session	hyprland/keybinds.lua	Locks screen with secure authentication dialog
+SUPER + SHIFT + L	Session	Suspend / sleep system	systemctl suspend	hyprland/keybinds.lua	Puts system into low-power sleep state
+CTRL + ALT + Delete	Session	Power & Session Menu TUI	kitty --class=session-modal -e ~/.local/bin/hypr-session	hyprland/keybinds.lua	Unified TUI for Lock, Suspend, Hibernate, Reboot, Shutdown, and UEFI
+SUPER + Escape	Session	Power & Session Menu TUI	kitty --class=session-modal -e ~/.local/bin/hypr-session	custom/keybinds.lua	Unified TUI for Lock, Suspend, Hibernate, Reboot, Shutdown, and UEFI
+CTRL + SHIFT + ALT + SUPER + Del	Session	Emergency immediate shutdown	systemctl poweroff	hyprland/keybinds.lua	Saves session state and powers down the machine
+SUPER + ALT + F1	Session	Toggle Virtual Machine submap	hyprctl dispatch submap virtual-machine	hyprland/keybinds.lua	Passes all key combos directly to guest VM (press again to exit)
+CTRL + SUPER + ALT + Slash	Session	Edit user custom keybinds	xdg-open ~/.config/hypr/custom/keybinds.lua	custom/keybinds.lua	Opens custom keybindings Lua configuration in default editor
+EOF
+}
+
+# Generate formatted table for fzf
+list_table() {
+    get_data | awk -F'\t' '
+    {
+        printf "%-32s │ %-10s │ %s\n", $1, "["$2"]", $3
+    }'
+}
+
+# Preview pane renderer for a specific keybinding
+render_preview() {
+    local query="${1:-}"
+    if [[ -z "$query" ]]; then
+        echo "No keybind selected"
+        return
+    fi
+
+    # Strip column padding to extract key name
+    local key
+    key="$(echo "$query" | awk -F'│' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')"
+
+    local match
+    match="$(get_data | grep -F "$key"$'\t' | head -n1 || true)"
+
+    if [[ -z "$match" ]]; then
+        # Try matching by full query if key lookup failed
+        match="$(get_data | grep -F "$key" | head -n1 || true)"
+    fi
+
+    if [[ -z "$match" ]]; then
+        echo "Details not found for: $key"
+        return
+    fi
+
+    IFS=$'\t' read -r k_key k_cat k_action k_cmd k_src k_details <<< "$match"
+
+    local c_cyan="\033[36m"
+    local c_green="\033[32m"
+    local c_bold="\033[1m"
+    local c_dim="\033[90m"
+    local c_yellow="\033[33m"
+    local c_reset="\033[0m"
+
+    echo -e "${c_cyan}┌── Keybind Inspector ──────────────────────────────────────────┐${c_reset}"
+    printf "│ %bKeys:%b        %b%-45s%b │\n" "$c_bold" "$c_reset" "$c_green" "$k_key" "$c_reset"
+    printf "│ %bCategory:%b    %-45s │\n" "$c_bold" "$c_reset" "$k_cat"
+    printf "│ %bAction:%b      %-45s │\n" "$c_bold" "$c_reset" "$k_action"
+    printf "│ %bConfig:%b      %-45s │\n" "$c_bold" "$c_reset" "$k_src"
+    echo -e "${c_cyan}├───────────────────────────────────────────────────────────────┤${c_reset}"
+    echo -e "│ ${c_bold}Execution Command:${c_reset}"
+    echo "$k_cmd" | fold -s -w 60 | while IFS= read -r line; do
+        printf "│   %b%-58s%b │\n" "$c_yellow" "$line" "$c_reset"
+    done
+    echo -e "${c_cyan}├───────────────────────────────────────────────────────────────┤${c_reset}"
+    echo -e "│ ${c_bold}Description & Usage:${c_reset}"
+    echo "$k_details" | fold -s -w 60 | while IFS= read -r line; do
+        printf "│   %-58s │\n" "$line"
+    done
+    echo -e "${c_cyan}└───────────────────────────────────────────────────────────────┘${c_reset}"
+}
+
+# Execute command associated with selected keybinding
+execute_keybind() {
+    local line="${1:-}"
+    if [[ -z "$line" ]]; then return; fi
+
+    local key
+    key="$(echo "$line" | awk -F'│' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')"
+
+    local cmd
+    cmd="$(get_data | grep -F "$key"$'\t' | head -n1 | cut -f4 || true)"
+
+    if [[ -n "$cmd" ]]; then
+        eval "$cmd" >/dev/null 2>&1 &
+    fi
+}
+
+# Yank key combination or command
+yank_item() {
+    local line="${1:-}"
+    local mode="${2:-key}" # 'key' or 'cmd'
+    if [[ -z "$line" ]]; then return; fi
+
+    local key
+    key="$(echo "$line" | awk -F'│' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')"
+
+    local item
+    if [[ "$mode" == "cmd" ]]; then
+        item="$(get_data | grep -F "$key"$'\t' | head -n1 | cut -f4 || true)"
+    else
+        item="$key"
+    fi
+
+    if [[ -n "$item" ]]; then
+        echo -n "$item" | wl-copy
+        notify-send -a "Cheatsheet" "Copied to clipboard" "$item" -t 1500 2>/dev/null || true
+    fi
+}
+
+# Open configuration files in editor
+open_config() {
+    ~/.config/hypr/hyprland/scripts/launch_first_available.sh \
+        "code ~/.config/hypr/hyprland/keybinds.lua ~/.config/hypr/custom/keybinds.lua" \
+        "kate ~/.config/hypr/hyprland/keybinds.lua ~/.config/hypr/custom/keybinds.lua" \
+        "xdg-open ~/.config/hypr/hyprland/keybinds.lua" >/dev/null 2>&1 &
+}
+
+# Subcommand dispatch
+case "${1:-}" in
+    --preview)
+        render_preview "${2:-}"
+        exit 0
+        ;;
+    --exec)
+        execute_keybind "${2:-}"
+        exit 0
+        ;;
+    --yank)
+        yank_item "${2:-}" "${3:-key}"
+        exit 0
+        ;;
+    --edit)
+        open_config
+        exit 0
+        ;;
+esac
+
+header=$'\033[1;36mHyprland Keybinds Cheatsheet\033[0m  \033[90m│  Fuzzy filter: type any key or category\033[0m\n\033[90m[Enter] Run command │ [Ctrl+Y] Copy key │ [Ctrl+C] Copy cmd │ [Ctrl+E] Edit lua\033[0m'
+
+selected="$(list_table | fzf \
+    --ansi \
+    --reverse \
+    --border=rounded \
+    --border-label=" Hyprland Keybinds " \
+    --border-label-pos=2 \
+    --prompt=" Search > " \
+    --header="$header" \
+    --preview="$SCRIPT_PATH --preview {}" \
+    --preview-window="right:52%:wrap" \
+    --bind="enter:execute-silent($SCRIPT_PATH --exec {})+abort" \
+    --bind="ctrl-y:execute-silent($SCRIPT_PATH --yank {} key)" \
+    --bind="ctrl-c:execute-silent($SCRIPT_PATH --yank {} cmd)" \
+    --bind="ctrl-e:execute-silent($SCRIPT_PATH --edit)" \
+    --no-sort \
+    || true)"

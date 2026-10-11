@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+# Brief pause to ensure Ctrl modifier is released
+sleep 0.12
+
+if wl-paste --list-types | grep -q 'image/png'; then
+    DIR="$HOME/Pictures/Screenshots"
+    mkdir -p "$DIR"
+    IMG="$DIR/clip_$(date +%Y%m%d_%H%M%S).png"
+    wl-paste --type image/png > "$IMG"
+    wtype "$IMG "
+else
+    wtype "$(wl-paste)"
+fi

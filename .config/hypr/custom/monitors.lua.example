@@ -1,0 +1,4 @@
+-- Example monitor configuration
+-- Rename or copy this file to monitors.lua to customize your display layout.
+-- Query your active outputs via: hyprctl monitors
+monitor(", preferred, auto, 1")

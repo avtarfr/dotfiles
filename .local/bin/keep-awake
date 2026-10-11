@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if pidof hypridle >/dev/null 2>&1; then
+  killall hypridle
+  echo "Keep-Awake: ACTIVE (hypridle stopped — screen will not sleep or lock)"
+  notify-send -u normal -a "Keep-Awake" "Caffeine ON" "Screen sleep and auto-lock disabled" 2>/dev/null || true
+else
+  nohup hypridle >/dev/null 2>&1 & disown
+  echo "Keep-Awake: INACTIVE (hypridle started — normal sleep and lock restored)"
+  notify-send -u normal -a "Keep-Awake" "Caffeine OFF" "Screen sleep and auto-lock restored" 2>/dev/null || true
+fi

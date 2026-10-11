@@ -1,0 +1,288 @@
+@import url("colors.css");
+* {
+  font-family: "Hack Nerd Font", "Hack", monospace;
+  font-size: 11pt;
+}
+
+window,
+label,
+button,
+entry,
+.notification,
+.control-center,
+.text-box label,
+.summary,
+.time,
+.body,
+.widget-title > label,
+.widget-title > button,
+.widget-dnd > label {
+  font-family: "Hack Nerd Font", "Hack", monospace;
+}
+
+/* Ensure GTK window surfaces are completely transparent for layer-shell blur */
+window,
+notificationwindow,
+blankwindow,
+.notification-window,
+.control-center-window,
+.blank-window {
+  background: transparent;
+  background-color: transparent;
+}
+
+.notification-row,
+.notification-row .notification-background,
+.notification-group,
+.notification-group:focus,
+.notification-group.collapsed,
+.notification-group.collapsed:hover,
+.notification-group-headers,
+.notification-group-buttons {
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.notification-row .notification-background {
+  padding: 6px 12px;
+}
+
+/* -------------------------------------------------------------
+ * Toast Notification (Matched to Material Theme)
+ * ------------------------------------------------------------- */
+
+.notification-row .notification-background .notification {
+  border-radius: 10px;
+  border: 1px solid @notif_border;
+  padding: 10px 14px;
+  background: @notif_bg;
+  background-color: @notif_bg;
+  box-shadow: none;
+  transition: background 0.15s ease-in-out;
+}
+
+.notification-row .notification-background .notification:hover {
+  background: @notif_bg_hover;
+  background-color: @notif_bg_hover;
+  border-color: @notif_border_hover;
+}
+
+.notification-row .notification-background .notification.critical {
+  border: 1px solid @error;
+  background: alpha(@error_container, 0.55);
+  background-color: alpha(@error_container, 0.55);
+  box-shadow: none;
+}
+
+.notification-row .notification-background .notification .notification-default-action {
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  color: @on_surface;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content {
+  background: transparent;
+  background-color: transparent;
+  padding: 0;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .image {
+  -gtk-icon-size: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  margin: 4px 12px 4px 4px;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .app-icon {
+  -gtk-icon-size: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  margin-right: 8px;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box label {
+  filter: none;
+  font-weight: normal;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: @primary;
+  text-shadow: none;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .time {
+  font-size: 11px;
+  font-weight: 400;
+  color: @on_surface_variant;
+  text-shadow: none;
+  margin-right: 28px;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .body {
+  font-size: 12px;
+  font-weight: 400;
+  color: @on_surface;
+  text-shadow: none;
+  margin-top: 2px;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content progressbar {
+  margin-top: 6px;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content progressbar trough {
+  background: alpha(@surface_container_highest, 0.50);
+  border-radius: 4px;
+  min-height: 4px;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content progressbar progress {
+  background: @primary;
+  border-radius: 4px;
+  min-height: 4px;
+}
+
+/* Close button */
+.close-button {
+  background: alpha(@on_surface, 0.10);
+  color: @on_surface;
+  border-radius: 50%;
+  padding: 0;
+  margin-top: 8px;
+  margin-right: 8px;
+  box-shadow: none;
+  border: none;
+  min-width: 20px;
+  min-height: 20px;
+  transition: background 0.15s ease-in-out;
+}
+
+.close-button:hover {
+  background: @primary_container;
+  color: @on_primary_container;
+}
+
+/* Actions */
+.notification-action {
+  margin: 4px 2px;
+}
+
+.notification-action > button {
+  background: @btn_bg;
+  border: 1px solid @notif_border;
+  border-radius: 6px;
+  color: @btn_fg;
+  padding: 4px 12px;
+  font-size: 11px;
+  transition: background 0.15s ease-in-out;
+}
+
+.notification-action > button:hover {
+  background: @btn_bg_hover;
+  border-color: @primary;
+  color: @btn_fg_hover;
+}
+
+/* -------------------------------------------------------------
+ * Control Center (Fly-out History Sidebar Panel)
+ * ------------------------------------------------------------- */
+
+.control-center {
+  background: @cc_bg;
+  background-color: @cc_bg;
+  color: @on_surface;
+  border-radius: 14px;
+  border: 1px solid @notif_border;
+  box-shadow: none;
+  padding: 16px;
+  margin: 10px;
+}
+
+.control-center .control-center-list-placeholder {
+  color: @on_surface_variant;
+  font-size: 13px;
+  padding: 24px;
+}
+
+.control-center .control-center-list {
+  background: transparent;
+  background-color: transparent;
+}
+
+.control-center .control-center-list .notification {
+  background: @cc_notif_bg;
+  background-color: @cc_notif_bg;
+  border: 1px solid @cc_notif_border;
+  box-shadow: none;
+  border-radius: 10px;
+  margin: 6px 0;
+}
+
+.control-center .control-center-list .notification:hover {
+  background: @cc_notif_bg_hover;
+  background-color: @cc_notif_bg_hover;
+  border-color: @cc_notif_border_hover;
+}
+
+/* Title widget */
+.widget-title {
+  margin: 4px 8px 12px 8px;
+}
+
+.widget-title > label {
+  font-size: 15px;
+  font-weight: 500;
+  color: @primary;
+}
+
+.widget-title > button {
+  background: @btn_bg;
+  border: 1px solid @notif_border;
+  border-radius: 6px;
+  color: @btn_fg;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 400;
+  transition: background 0.15s ease;
+}
+
+.widget-title > button:hover {
+  background: @btn_bg_hover;
+  border-color: @primary;
+  color: @btn_fg_hover;
+}
+
+/* DND widget */
+.widget-dnd {
+  margin: 4px 8px 12px 8px;
+  background: @cc_notif_bg;
+  background-color: @cc_notif_bg;
+  border: 1px solid @cc_notif_border;
+  box-shadow: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.widget-dnd > label {
+  font-weight: 400;
+  font-size: 13px;
+  color: @on_surface;
+}
+
+.widget-dnd > switch {
+  background: alpha(@surface_container_highest, 0.50);
+  border-radius: 12px;
+}
+
+.widget-dnd > switch:checked {
+  background: @primary;
+}
