@@ -104,7 +104,9 @@ for script in "$DOTFILES_DIR"/.local/bin/*; do
 done
 
 if [ "$backed_up" -eq 1 ]; then
+    echo "$BACKUP_DIR" > "$HOME/.dotfiles_last_backup"
     log_success "Existing conflicting configs safely backed up to $BACKUP_DIR"
+    log_info "To revert at any time, run: ./uninstall.sh"
 else
     rm -rf "$BACKUP_DIR"
 fi
@@ -132,7 +134,11 @@ if command -v hyprpm &>/dev/null; then
 fi
 
 # 8. Monitor Configuration Setup
-if [ ! -f "$HOME/.config/hypr/custom/monitors.lua" ]; then
+if [ -f "$BACKUP_DIR/hypr/custom/monitors.lua" ]; then
+    log_info "Preserving existing monitors.lua layout from your previous setup..."
+    cp "$BACKUP_DIR/hypr/custom/monitors.lua" "$HOME/.config/hypr/custom/monitors.lua"
+    log_success "Restored existing monitor layout."
+elif [ ! -f "$HOME/.config/hypr/custom/monitors.lua" ]; then
     log_info "Creating default monitors.lua from template..."
     cp "$DOTFILES_DIR/.config/hypr/custom/monitors.lua.example" "$HOME/.config/hypr/custom/monitors.lua"
     log_success "Created ~/.config/hypr/custom/monitors.lua (edit this to configure your display layout)."

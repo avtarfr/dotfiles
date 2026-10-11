@@ -76,6 +76,14 @@ switchwall
 ```
 This opens the wallpaper selector, updates `hyprpaper`, and triggers `matugen` to generate matching color palettes across the entire desktop.
 
+### 5. Reverting to Previous Setup (Rollback)
+If testing this on top of an existing setup (such as ML4W or an existing Hyprland install), all previously existing configurations are preserved in `~/.dotfiles_backup_<timestamp>`.
+
+To restore your previous setup and remove the dotfiles symlinks:
+```bash
+./uninstall.sh
+```
+
 ---
 
 ## Keybindings & Shortcuts
