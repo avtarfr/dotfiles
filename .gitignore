@@ -13,6 +13,7 @@ __pycache__/
 
 # Machine overrides
 .gitconfig.local
+.config/caffeinate-lock.conf
 
 # OS artifacts
 .DS_Store

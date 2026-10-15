@@ -161,7 +161,15 @@ GIT_EOF
     log_success "Created ~/.gitconfig.local. Update it with your Git identity."
 fi
 
-# 10. Create Standard User Directories
+# 10. Caffeinate Lock Personal Configuration
+if [ ! -f "$HOME/.config/caffeinate-lock.conf" ]; then
+    log_info "Creating ~/.config/caffeinate-lock.conf from template..."
+    cp "$DOTFILES_DIR/.config/caffeinate-lock.conf.example" "$HOME/.config/caffeinate-lock.conf"
+    log_success "Created ~/.config/caffeinate-lock.conf (edit this to customize your secret unlock chord)."
+fi
+
+# 11. Create Standard User Directories
+
 mkdir -p "$HOME/Pictures/Screenshots" "$HOME/Pictures/wallpapers" "$HOME/Videos/Recordings" "$HOME/Documents" "$HOME/Projects"
 log_success "Verified user directories."
 

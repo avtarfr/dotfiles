@@ -53,6 +53,9 @@ No heavy electron control centers or sluggish desktop widgets. Fast, keyboard-na
   Instant fuzzy-searchable cheatsheet indexing every application shortcut, window movement, workspace bind, and system action.
 - **`keep-awake` (`Ctrl + Super + I`)**:
   One-shot caffeine toggle that inhibits/resumes `hypridle` with desktop status notifications.
+- **`caffeinate-lock` (`Super + Alt + L` / `Ctrl + Alt + Super + U`)**:
+  Headless stealth lock that inhibits lid-switch suspend and system idle via `systemd-inhibit`, disables display signal, and exclusively grabs all mouse and keyboard inputs at the kernel level (`EVIOCGRAB`). Background simulations, scripts, and downloads keep running at 100% CPU with the laptop lid closed. Wakes when your private secret chord (or PIN) is pressed. Unlock configuration is stored privately in `~/.config/caffeinate-lock.conf` (untracked by git) so your secret keybind is never exposed publicly.
+
 
 ---
 

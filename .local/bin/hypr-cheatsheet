@@ -101,6 +101,8 @@ SUPER + SHIFT + B	Media	Previous media track	playerctl previous	hyprland/keybind
 XF86RFKill	Media	Toggle screen refresh rate	~/.config/hypr/hyprland/scripts/toggle-refresh.sh	custom/keybinds.lua	Cycles display refresh rate between 60Hz and high refresh (144Hz)
 SUPER + Equal / Minus	Media	Desktop zoom in / zoom out	hyprctl keyword cursor:zoom_factor +/-0.3	hyprland/keybinds.lua	Smoothly magnifies desktop view around the cursor
 SUPER + L	Session	Lock session screen	loginctl lock-session	hyprland/keybinds.lua	Locks screen with secure authentication dialog
+SUPER + ALT + L	Session	Caffeinated stealth lock	~/.local/bin/caffeinate-lock	custom/keybinds.lua	Freezes input & inhibits sleep for background jobs until Ctrl+Alt+Super+U
+CTRL + ALT + SUPER + U	Session	Caffeinated lock / unlock	~/.local/bin/caffeinate-lock	custom/keybinds.lua	Lock or unlock chord for caffeinated stealth lock (toggles/unfreezes input)
 SUPER + SHIFT + L	Session	Suspend / sleep system	systemctl suspend	hyprland/keybinds.lua	Puts system into low-power sleep state
 CTRL + ALT + Delete	Session	Power & Session Menu TUI	kitty --class=session-modal -e ~/.local/bin/hypr-session	hyprland/keybinds.lua	Unified TUI for Lock, Suspend, Hibernate, Reboot, Shutdown, and UEFI
 SUPER + Escape	Session	Power & Session Menu TUI	kitty --class=session-modal -e ~/.local/bin/hypr-session	custom/keybinds.lua	Unified TUI for Lock, Suspend, Hibernate, Reboot, Shutdown, and UEFI

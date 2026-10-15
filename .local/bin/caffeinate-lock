@@ -1,0 +1,432 @@
+#!/usr/bin/env python3
+"""
+caffeinate-lock: A headless "stealth lock" for Hyprland / Linux.
+Inhibits sleep and lid-switch suspend, freezes mouse & keyboard at kernel level,
+and keeps background operations running uninterrupted until a secret keybind is pressed.
+"""
+
+import argparse
+import fcntl
+import glob
+import os
+import re
+import select
+import signal
+import struct
+import subprocess
+import sys
+import time
+
+# Linux input subsystem definitions
+EVIOCGRAB = 0x40044590  # _IOW('E', 0x90, int)
+INPUT_EVENT_FORMAT = "qqHHi"
+EVENT_SIZE = struct.calcsize(INPUT_EVENT_FORMAT)
+EV_KEY = 0x01
+EV_SW = 0x05
+SW_LID = 0x00
+
+# Keycode lookup dictionary (Linux input-event-codes)
+KEY_MAP = {
+    # Modifiers
+    "ctrl": [29, 97], "lctrl": [29], "rctrl": [97],
+    "alt": [56, 100], "lalt": [56], "ralt": [100],
+    "super": [125, 126], "win": [125, 126], "meta": [125, 126], "lsuper": [125], "rsuper": [126],
+    "shift": [42, 54], "lshift": [42], "rshift": [54],
+
+    # Letters
+    "a": [30], "b": [48], "c": [46], "d": [32], "e": [18], "f": [33], "g": [34],
+    "h": [35], "i": [23], "j": [36], "k": [37], "l": [38], "m": [50], "n": [49],
+    "o": [24], "p": [25], "q": [16], "r": [19], "s": [31], "t": [20], "u": [22],
+    "v": [47], "w": [17], "x": [45], "y": [21], "z": [44],
+
+    # Numbers
+    "1": [2], "2": [3], "3": [4], "4": [5], "5": [6],
+    "6": [7], "7": [8], "8": [9], "9": [10], "0": [11],
+
+    # Control keys
+    "esc": [1], "escape": [1], "enter": [28], "return": [28],
+    "space": [57], "tab": [15], "backspace": [14],
+    "f1": [59], "f2": [60], "f3": [61], "f4": [62], "f5": [63],
+    "f6": [64], "f7": [65], "f8": [66], "f9": [67], "f10": [68],
+    "f11": [87], "f12": [88]
+}
+
+CODE_TO_CHAR = {
+    2: "1", 3: "2", 4: "3", 5: "4", 6: "5", 7: "6", 8: "7", 9: "8", 10: "9", 11: "0",
+    16: "q", 17: "w", 18: "e", 19: "r", 20: "t", 21: "y", 22: "u", 23: "i", 24: "o", 25: "p",
+    30: "a", 31: "s", 32: "d", 33: "f", 34: "g", 35: "h", 36: "j", 37: "k", 38: "l",
+    44: "z", 45: "x", 46: "c", 47: "v", 48: "b", 49: "n", 50: "m",
+    28: "\n"
+}
+
+
+def send_notify(title, body, urgency="normal"):
+    try:
+        subprocess.run(
+            ["notify-send", "-u", urgency, "-a", "Caffeinate Lock", title, body],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False
+        )
+    except Exception:
+        pass
+
+
+def set_dpms(enable: bool):
+    """Control display state via Hyprland dispatcher."""
+    action = "enable" if enable else "disable"
+    # Try Lua dispatch syntax first (used in dots-hyprland)
+    try:
+        res = subprocess.run(
+            ["hyprctl", "dispatch", f'hl.dsp.dpms({{ action = "{action}" }})'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False
+        )
+        if res.returncode == 0:
+            return
+    except Exception:
+        pass
+
+    # Fallback to standard hyprctl syntax
+    state = "on" if enable else "off"
+    try:
+        subprocess.run(
+            ["hyprctl", "dispatch", "dpms", state],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False
+        )
+    except Exception:
+        pass
+
+
+def parse_chord(chord_str):
+    parts = chord_str.lower().split("+")
+    required = []
+    for p in parts:
+        p = p.strip()
+        if p in KEY_MAP:
+            required.append(KEY_MAP[p])
+        else:
+            raise ValueError(f"Unknown key in chord: '{p}'. Supported: {', '.join(sorted(KEY_MAP.keys()))}")
+    return required
+
+
+def discover_input_devices():
+    """Discover keyboards, mice, and touchpads from /proc/bus/input/devices."""
+    devices = []
+    current = {}
+    try:
+        with open("/proc/bus/input/devices", "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    if current:
+                        devices.append(current)
+                        current = {}
+                    continue
+                if line.startswith("N: Name="):
+                    current["name"] = line.split("=", 1)[1].strip('"')
+                elif line.startswith("H: Handlers="):
+                    current["handlers"] = line.split("=", 1)[1].split()
+        if current:
+            devices.append(current)
+    except Exception as e:
+        sys.stderr.write(f"Error reading /proc/bus/input/devices: {e}\n")
+        return [], None
+
+    targets = []
+    lid_event = None
+
+    for d in devices:
+        name = d.get("name", "")
+        handlers = d.get("handlers", [])
+        name_lower = name.lower()
+
+        event_nodes = [h for h in handlers if h.startswith("event")]
+        if not event_nodes:
+            continue
+        event_path = f"/dev/input/{event_nodes[0]}"
+
+        if "lid switch" in name_lower:
+            lid_event = event_path
+            continue
+
+        # Don't trap raw power/sleep buttons so emergency ACPI poweroff stays possible
+        if any(skip in name_lower for skip in ["power button", "sleep button"]):
+            continue
+
+        is_mouse = any(h.startswith("mouse") for h in handlers) or "touchpad" in name_lower or "mouse" in name_lower
+        is_kbd = any(h == "kbd" for h in handlers) and not is_mouse
+
+        if is_mouse or is_kbd:
+            targets.append({
+                "name": name,
+                "path": event_path,
+                "is_mouse": is_mouse,
+                "is_kbd": is_kbd
+            })
+
+    return targets, lid_event
+
+
+def get_hypridle_pids():
+    try:
+        out = subprocess.check_output(["pidof", "hypridle"], stderr=subprocess.DEVNULL)
+        return [int(p) for p in out.decode().strip().split()]
+    except Exception:
+        return []
+
+
+def pause_hypridle():
+    pids = get_hypridle_pids()
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGSTOP)
+        except OSError:
+            pass
+    return pids
+
+
+def resume_hypridle(pids):
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGCONT)
+        except OSError:
+            pass
+
+
+def load_config():
+    """Load private user overrides from ~/.config/caffeinate-lock.conf if present."""
+    config_path = os.path.expanduser("~/.config/caffeinate-lock.conf")
+    conf = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        conf[k.strip().lower()] = v.strip().strip('"').strip("'")
+        except Exception as e:
+            sys.stderr.write(f"Warning: Failed to read {config_path}: {e}\n")
+    return conf
+
+
+def main():
+    cfg = load_config()
+    default_chord = cfg.get("chord", "ctrl+alt+super+u")
+    default_pin = cfg.get("pin", None)
+    default_no_dpms = cfg.get("no_dpms", "false").lower() in ("true", "1", "yes")
+
+    parser = argparse.ArgumentParser(
+        description="Caffeinated Stealth Locker: Freeze input and inhibit suspend while leaving background jobs running."
+    )
+    parser.add_argument(
+        "--chord",
+        default=default_chord,
+        help="Key combination required to unlock (default: configured in ~/.config/caffeinate-lock.conf or ctrl+alt+super+u)."
+    )
+    parser.add_argument(
+        "--pin",
+        default=default_pin,
+        help="Optional text passcode/PIN to unlock (e.g. 1234 or secret)."
+    )
+    parser.add_argument(
+        "--no-dpms",
+        action="store_true",
+        default=default_no_dpms,
+        help="Do not turn off display; keep screen visible while controls are locked."
+    )
+
+    parser.add_argument(
+        "--keep-display-off",
+        action="store_true",
+        help="Keep display off even when the lid is opened, until the secret key is pressed."
+    )
+    args = parser.parse_args()
+
+    # 1. Self-inhibit with systemd-inhibit if not already wrapped
+    if os.environ.get("CAFFEINATE_LOCK_ACTIVE") != "1":
+        inhibit_cmd = [
+            "systemd-inhibit",
+            "--what=handle-lid-switch:sleep:idle",
+            "--who=caffeinate-lock",
+            "--why=Background operations running with lid closed",
+            sys.executable,
+            os.path.abspath(__file__),
+            *sys.argv[1:]
+        ]
+        env = os.environ.copy()
+        env["CAFFEINATE_LOCK_ACTIVE"] = "1"
+        try:
+            os.execvpe("systemd-inhibit", inhibit_cmd, env)
+        except FileNotFoundError:
+            sys.stderr.write("Warning: systemd-inhibit not found. Proceeding without sleep inhibition.\n")
+
+    try:
+        required_chord = parse_chord(args.chord)
+    except ValueError as e:
+        sys.stderr.write(f"Configuration error: {e}\n")
+        sys.exit(1)
+
+    devices, lid_path = discover_input_devices()
+    if not devices:
+        sys.stderr.write("No input devices discovered to lock.\n")
+        sys.exit(1)
+
+    # 2. Pause hypridle so its 15-minute suspend listener does not fire
+    paused_hypridle_pids = pause_hypridle()
+
+    # 3. Open devices and take exclusive kernel grab
+    grabbed_fds = {}
+    lid_fd = None
+
+    def release_all():
+        for fd, dev in list(grabbed_fds.items()):
+            try:
+                fcntl.ioctl(fd, EVIOCGRAB, 0)
+            except OSError:
+                pass
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        grabbed_fds.clear()
+
+        if lid_fd is not None:
+            try:
+                os.close(lid_fd)
+            except OSError:
+                pass
+
+        if paused_hypridle_pids:
+            resume_hypridle(paused_hypridle_pids)
+
+        if not args.no_dpms:
+            set_dpms(True)
+
+    def sig_handler(signum, frame):
+        release_all()
+        send_notify("Caffeinate Lock", "Terminated. Input restored.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+    signal.signal(signal.SIGHUP, sig_handler)
+
+    try:
+        for dev in devices:
+            try:
+                fd = os.open(dev["path"], os.O_RDONLY | os.O_NONBLOCK)
+                fcntl.ioctl(fd, EVIOCGRAB, 1)
+                grabbed_fds[fd] = dev
+            except (OSError, PermissionError) as e:
+                sys.stderr.write(f"Could not grab {dev['path']} ({dev['name']}): {e}\n")
+
+        if not grabbed_fds:
+            sys.stderr.write("Failed to grab any input device. Ensure your user is in the 'input' group.\n")
+            if paused_hypridle_pids:
+                resume_hypridle(paused_hypridle_pids)
+            sys.exit(1)
+
+        # Open lid switch without grabbing it (to observe open/close without blocking systemd)
+        if lid_path and os.path.exists(lid_path):
+            try:
+                lid_fd = os.open(lid_path, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                lid_fd = None
+
+        # 4. Turn off screen if requested
+        if not args.no_dpms:
+            set_dpms(False)
+
+        unlock_msg = f"Hold [{args.chord.upper()}] to unlock."
+        if args.pin:
+            unlock_msg += f" Or type PIN."
+        send_notify("Caffeinate Lock: ACTIVE", f"Lid sleep inhibited. Input frozen.\n{unlock_msg}")
+
+        active_keys = set()
+        pin_buffer = ""
+
+        # 5. Main event loop
+        unlocked = False
+        while not unlocked:
+            watch_fds = list(grabbed_fds.keys())
+            if lid_fd is not None:
+                watch_fds.append(lid_fd)
+
+            rlist, _, _ = select.select(watch_fds, [], [])
+
+            for fd in rlist:
+                try:
+                    data = os.read(fd, EVENT_SIZE * 16)
+                except OSError:
+                    continue
+
+                if not data:
+                    continue
+
+                # Process all 24-byte event structs
+                for i in range(0, len(data) - EVENT_SIZE + 1, EVENT_SIZE):
+                    chunk = data[i:i + EVENT_SIZE]
+                    sec, usec, ev_type, code, value = struct.unpack(INPUT_EVENT_FORMAT, chunk)
+
+                    # Handle lid switch event (EV_SW, SW_LID)
+                    if fd == lid_fd:
+                        if ev_type == EV_SW and code == SW_LID:
+                            if value == 1:
+                                # Lid closed
+                                if not args.no_dpms:
+                                    set_dpms(False)
+                            elif value == 0:
+                                # Lid opened
+                                if not args.no_dpms and not args.keep_display_off:
+                                    set_dpms(True)
+                        continue
+
+                    # Handle keyboard events
+                    dev_info = grabbed_fds.get(fd)
+                    if dev_info and dev_info["is_kbd"]:
+                        if ev_type == EV_KEY:
+                            if value in (1, 2):  # Press or Repeat
+                                active_keys.add(code)
+
+                                # Check PIN if configured
+                                if args.pin and code in CODE_TO_CHAR and value == 1:
+                                    char = CODE_TO_CHAR[code]
+                                    if char == "\n":
+                                        if pin_buffer == args.pin:
+                                            unlocked = True
+                                            break
+                                        pin_buffer = ""
+                                    else:
+                                        pin_buffer += char
+                                        if pin_buffer.endswith(args.pin):
+                                            unlocked = True
+                                            break
+                                        if len(pin_buffer) > len(args.pin) + 8:
+                                            pin_buffer = pin_buffer[-len(args.pin):]
+
+                                # Check key chord
+                                if all(any(k in active_keys for k in grp) for grp in required_chord):
+                                    unlocked = True
+                                    break
+
+                            elif value == 0:  # Release
+                                active_keys.discard(code)
+
+                    # Mouse / Touchpad events: swallowed completely (ignored)
+
+    finally:
+        release_all()
+
+    send_notify("Caffeinate Lock: UNLOCKED", "Normal input restored.")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

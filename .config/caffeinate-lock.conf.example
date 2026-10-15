@@ -1,0 +1,13 @@
+# Private configuration for caffeinate-lock
+# Copy this file to ~/.config/caffeinate-lock.conf to customize your secret unlock chord.
+#
+# CHORD: Combination of keys required to unlock.
+# Supported modifiers: ctrl, alt, super/win, shift
+# Supported keys: a-z, 0-9, esc, enter, space, tab, backspace, f1-f12
+CHORD="ctrl+alt+super+u"
+
+# Optional text PIN/passcode to unlock (e.g. 1234 or secret)
+# PIN="1234"
+
+# Whether to leave the display on while controls are locked
+# NO_DPMS=false

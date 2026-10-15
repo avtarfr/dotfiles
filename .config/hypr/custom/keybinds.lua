@@ -283,4 +283,9 @@ hl.bind("SUPER + Q", function()
     end
 end, { description = "Window: Close focused window safely" })
 
+-- Caffeinated stealth lock (freezes input, inhibits suspend, wakes on secret keybind)
+hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("caffeinate-lock"), { description = "Session: Caffeinated stealth lock" })
+hl.bind("CTRL + ALT + SUPER + U", hl.dsp.exec_cmd("caffeinate-lock"), { description = "Session: Caffeinated stealth lock (lock/unlock chord)" })
+
+
 
